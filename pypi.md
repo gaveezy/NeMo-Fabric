@@ -50,7 +50,9 @@ The following table shows the install target for each supported agent harness:
 | Agent Harness | Runtime, Adapter, and Harness | Adapter and Harness | Adapter Only |
 | --- | --- | --- | --- |
 | [Claude Code](https://pypi.org/project/nemo-fabric-adapters-claude/) | `nemo-fabric[claude]` | `nemo-fabric-adapters-claude[harness]` | `nemo-fabric-adapters-claude` |
+| [Claude Code CLI](https://pypi.org/project/nemo-fabric-adapters-claude-cli/) | `nemo-fabric[claude-cli]` | `nemo-fabric-adapters-claude-cli[harness]` | `nemo-fabric-adapters-claude-cli` |
 | [Codex](https://pypi.org/project/nemo-fabric-adapters-codex/) | `nemo-fabric[codex]` | `nemo-fabric-adapters-codex[harness]` | `nemo-fabric-adapters-codex` |
+| [Codex CLI](https://pypi.org/project/nemo-fabric-adapters-codex-cli/) | `nemo-fabric[codex-cli]` | `nemo-fabric-adapters-codex-cli[harness]` | `nemo-fabric-adapters-codex-cli` |
 | [Hermes Agent](https://pypi.org/project/nemo-fabric-adapters-hermes/) | `nemo-fabric[hermes-agent]` | `nemo-fabric-adapters-hermes[harness]` | `nemo-fabric-adapters-hermes` |
 | [LangChain Deep Agents](https://pypi.org/project/nemo-fabric-adapters-deepagents/) | `nemo-fabric[deepagents]` | `nemo-fabric-adapters-deepagents[harness]` | `nemo-fabric-adapters-deepagents` |
 
@@ -60,7 +62,9 @@ environment, choose one of the following `nemo-fabric` harness extras:
 
 ```bash
 pip install "nemo-fabric[claude]"
+pip install "nemo-fabric[claude-cli]"
 pip install "nemo-fabric[codex]"
+pip install "nemo-fabric[codex-cli]"
 pip install "nemo-fabric[deepagents]"
 pip install "nemo-fabric[hermes-agent]"
 ```
@@ -78,14 +82,18 @@ pip install "nemo-fabric-adapters-hermes[harness]"
 Every adapter package also provides an adapter-scoped `full` extra, which does
 not install the NeMo Fabric runtime. For Claude and Codex, `full` installs the
 same dependencies as `harness`. For LangChain Deep Agents and Hermes Agent,
-`full` also installs the NeMo Relay Python package.
+`full` also installs the NeMo Relay Python package. The Claude Code CLI and
+Codex CLI adapters drive external executables, so their `harness` and `full`
+extras install no additional packages.
 
 If the environment already manages a compatible harness, choose one of the
 following bare adapter packages:
 
 ```bash
 pip install nemo-fabric-adapters-claude
+pip install nemo-fabric-adapters-claude-cli
 pip install nemo-fabric-adapters-codex
+pip install nemo-fabric-adapters-codex-cli
 pip install nemo-fabric-adapters-deepagents
 pip install nemo-fabric-adapters-hermes
 ```

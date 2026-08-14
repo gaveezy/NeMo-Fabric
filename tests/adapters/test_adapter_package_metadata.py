@@ -28,10 +28,22 @@ ADAPTER_EXTRAS = {
         "root": f"nemo-fabric-adapters-claude[harness] == {PACKAGE_VERSION}",
         "harness": ["claude-agent-sdk==0.2.120"],
     },
+    # The CLI adapters drive external executables; their harness extras are
+    # deliberately empty so the root delegation pattern stays uniform.
+    "claude-cli": {
+        "path": "adapters/claude-cli",
+        "root": f"nemo-fabric-adapters-claude-cli[harness] == {PACKAGE_VERSION}",
+        "harness": [],
+    },
     "codex": {
         "path": "adapters/codex",
         "root": f"nemo-fabric-adapters-codex[harness] == {PACKAGE_VERSION}",
         "harness": ["openai-codex==0.144.4"],
+    },
+    "codex-cli": {
+        "path": "adapters/codex-cli",
+        "root": f"nemo-fabric-adapters-codex-cli[harness] == {PACKAGE_VERSION}",
+        "harness": [],
     },
     "deepagents": {
         "path": "adapters/deepagents",
@@ -69,7 +81,23 @@ ADAPTER_EXTRAS = {
             ],
         ),
         (
+            "adapters/claude-cli",
+            [
+                f"nemo-fabric-adapter-contract == {PACKAGE_VERSION}",
+                f"nemo-fabric-adapters-common == {PACKAGE_VERSION}",
+                "tomli-w~=1.2",
+            ],
+        ),
+        (
             "adapters/codex",
+            [
+                f"nemo-fabric-adapter-contract == {PACKAGE_VERSION}",
+                f"nemo-fabric-adapters-common == {PACKAGE_VERSION}",
+                "tomli-w~=1.2",
+            ],
+        ),
+        (
+            "adapters/codex-cli",
             [
                 f"nemo-fabric-adapter-contract == {PACKAGE_VERSION}",
                 f"nemo-fabric-adapters-common == {PACKAGE_VERSION}",
@@ -111,7 +139,9 @@ def test_adapter_test_dependency_group_matches_leaf_harnesses():
     manifest = load_pyproject("")
     expected = [
         "nemo-fabric-adapters-claude[harness]",
+        "nemo-fabric-adapters-claude-cli[harness]",
         "nemo-fabric-adapters-codex[harness]",
+        "nemo-fabric-adapters-codex-cli[harness]",
         "nemo-fabric-adapters-deepagents[harness]",
         "nemo-fabric-adapters-hermes[harness]; python_version < '3.14'",
     ]

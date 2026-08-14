@@ -1,0 +1,74 @@
+---
+title: "Use the Claude Code CLI Adapter"
+description: "Install and configure the NeMo Fabric harness integration that drives the Claude Code CLI directly."
+---
+{/* SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0 */}
+
+The NVIDIA NeMo Fabric `nvidia.fabric.claude.cli` adapter runs the Claude Code
+command-line interface (`claude`) directly, without the Claude Agent SDK. Each
+invocation executes one headless `claude --print` turn with structured
+stream-JSON output and resumes the same conversation across the turns of one
+runtime.
+
+Use this adapter when the execution environment provides a managed `claude`
+executable. For SDK-managed execution with MCP, skills, and tool-policy
+support, use the [`nvidia.fabric.claude` adapter](claude.mdx).
+
+## Install the Adapter
+
+To install the NeMo Fabric runtime and the adapter in one environment:
+
+```bash
+pip install "nemo-fabric[claude-cli]"
+```
+
+To install only the adapter:
+
+```bash
+pip install nemo-fabric-adapters-claude-cli
+```
+
+The harness is the external `claude` executable; install
+[Claude Code](https://claude.com/product/claude-code) separately and keep it on
+`PATH`. The adapter's `harness` and `full` extras install no additional
+packages. `doctor(...)` reports whether the `claude` binary is available.
+
+For separate runtime and adapter environments, set `ADAPTER_PYTHON` in the
+runtime environment to the adapter environment's Python interpreter and use
+matching NeMo Fabric release versions.
+
+## Configure the Adapter
+
+Select the Claude Code CLI harness integration in `HarnessConfig`:
+
+```python
+from nemo_fabric import HarnessConfig
+
+harness = HarnessConfig(adapter_id="nvidia.fabric.claude.cli")
+```
+
+The adapter accepts the normalized `models`, `models.base_url`,
+`instructions.system`, `runtime.max_turns`, and `tools.blocked` fields. The
+`anthropic` provider uses Claude's native credential resolution; another
+provider name requires an Anthropic Messages-compatible `base_url` and
+`api_key_env`.
+
+The descriptor validates the following `harness.settings` fields:
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `permission_mode` | string | none | Claude permission handling mode: `default`, `acceptEdits`, `bypassPermissions`, `plan`, `dontAsk`, or `auto`. |
+
+## Understand the Runtime Lifecycle
+
+Each NeMo Fabric runtime tracks one Claude conversation. The first invocation
+starts a session; later invocations resume the most recent session identity
+with `--resume`. When NeMo Relay telemetry is enabled, the adapter starts the
+Relay gateway, routes model traffic through it, forwards Claude hook events
+through a generated `--settings` document, and finalizes Agent Trajectory
+Observability Format (ATOF) and Agent Trajectory Interchange Format (ATIF)
+artifacts after each completed invocation.
+
+For the complete configuration and lifecycle reference, refer to the
+[Claude Code CLI adapter guide](https://github.com/NVIDIA/NeMo-Fabric/tree/main/adapters/claude-cli).

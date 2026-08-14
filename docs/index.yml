@@ -54,8 +54,12 @@ navigation:
             path: ./integrations/harness/overview.mdx
           - page: Claude Code
             path: ./integrations/harness/claude.mdx
+          - page: Claude Code CLI
+            path: ./integrations/harness/claude-cli.mdx
           - page: Codex
             path: ./integrations/harness/codex.mdx
+          - page: Codex CLI
+            path: ./integrations/harness/codex-cli.mdx
           - page: Hermes Agent
             path: ./integrations/harness/hermes.mdx
           - page: LangChain Deep Agents

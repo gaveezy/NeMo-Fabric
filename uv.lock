@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -2125,8 +2125,14 @@ dependencies = [
 claude = [
     { name = "nemo-fabric-adapters-claude", extra = ["harness"] },
 ]
+claude-cli = [
+    { name = "nemo-fabric-adapters-claude-cli" },
+]
 codex = [
     { name = "nemo-fabric-adapters-codex", extra = ["harness"] },
+]
+codex-cli = [
+    { name = "nemo-fabric-adapters-codex-cli" },
 ]
 deepagents = [
     { name = "nemo-fabric-adapters-deepagents", extra = ["harness"] },
@@ -2145,14 +2151,18 @@ relay = [
 [package.dev-dependencies]
 adapter-tests = [
     { name = "nemo-fabric-adapters-claude", extra = ["harness"] },
+    { name = "nemo-fabric-adapters-claude-cli" },
     { name = "nemo-fabric-adapters-codex", extra = ["harness"] },
+    { name = "nemo-fabric-adapters-codex-cli" },
     { name = "nemo-fabric-adapters-deepagents", extra = ["harness"] },
     { name = "nemo-fabric-adapters-hermes", extra = ["harness"], marker = "python_full_version < '3.14'" },
 ]
 adapters = [
     { name = "nemo-fabric-adapter-contract" },
     { name = "nemo-fabric-adapters-claude" },
+    { name = "nemo-fabric-adapters-claude-cli" },
     { name = "nemo-fabric-adapters-codex" },
+    { name = "nemo-fabric-adapters-codex-cli" },
     { name = "nemo-fabric-adapters-common" },
     { name = "nemo-fabric-adapters-deepagents", extra = ["relay"] },
     { name = "nemo-fabric-adapters-hermes", marker = "python_full_version < '3.14'" },
@@ -2197,26 +2207,32 @@ test = [
 requires-dist = [
     { name = "harbor", marker = "python_full_version >= '3.12' and extra == 'harbor'", specifier = ">=0.18,<0.19" },
     { name = "nemo-fabric-adapters-claude", extras = ["harness"], marker = "extra == 'claude'", editable = "adapters/claude" },
+    { name = "nemo-fabric-adapters-claude-cli", extras = ["harness"], marker = "extra == 'claude-cli'", editable = "adapters/claude-cli" },
     { name = "nemo-fabric-adapters-codex", extras = ["harness"], marker = "extra == 'codex'", editable = "adapters/codex" },
+    { name = "nemo-fabric-adapters-codex-cli", extras = ["harness"], marker = "extra == 'codex-cli'", editable = "adapters/codex-cli" },
     { name = "nemo-fabric-adapters-deepagents", extras = ["harness"], marker = "extra == 'deepagents'", editable = "adapters/deepagents" },
     { name = "nemo-fabric-adapters-hermes", extras = ["harness"], marker = "python_full_version < '3.14' and extra == 'hermes-agent'", editable = "adapters/hermes" },
     { name = "nemo-fabric-runtime", editable = "python" },
     { name = "nemo-relay", marker = "extra == 'relay'", specifier = ">=0.6.0,<0.7" },
     { name = "pyyaml", marker = "extra == 'harbor'", specifier = ">=6.0" },
 ]
-provides-extras = ["claude", "codex", "deepagents", "harbor", "hermes-agent", "relay"]
+provides-extras = ["claude", "claude-cli", "codex", "codex-cli", "deepagents", "harbor", "hermes-agent", "relay"]
 
 [package.metadata.requires-dev]
 adapter-tests = [
     { name = "nemo-fabric-adapters-claude", extras = ["harness"], editable = "adapters/claude" },
+    { name = "nemo-fabric-adapters-claude-cli", extras = ["harness"], editable = "adapters/claude-cli" },
     { name = "nemo-fabric-adapters-codex", extras = ["harness"], editable = "adapters/codex" },
+    { name = "nemo-fabric-adapters-codex-cli", extras = ["harness"], editable = "adapters/codex-cli" },
     { name = "nemo-fabric-adapters-deepagents", extras = ["harness"], editable = "adapters/deepagents" },
     { name = "nemo-fabric-adapters-hermes", extras = ["harness"], marker = "python_full_version < '3.14'", editable = "adapters/hermes" },
 ]
 adapters = [
     { name = "nemo-fabric-adapter-contract", editable = "adapter-contract" },
     { name = "nemo-fabric-adapters-claude", editable = "adapters/claude" },
+    { name = "nemo-fabric-adapters-claude-cli", editable = "adapters/claude-cli" },
     { name = "nemo-fabric-adapters-codex", editable = "adapters/codex" },
+    { name = "nemo-fabric-adapters-codex-cli", editable = "adapters/codex-cli" },
     { name = "nemo-fabric-adapters-common", editable = "adapters/common" },
     { name = "nemo-fabric-adapters-deepagents", extras = ["relay"], editable = "adapters/deepagents" },
     { name = "nemo-fabric-adapters-hermes", marker = "python_full_version < '3.14'", editable = "adapters/hermes" },
@@ -2289,6 +2305,24 @@ requires-dist = [
 provides-extras = ["harness", "full"]
 
 [[package]]
+name = "nemo-fabric-adapters-claude-cli"
+version = "0.2.0"
+source = { editable = "adapters/claude-cli" }
+dependencies = [
+    { name = "nemo-fabric-adapter-contract" },
+    { name = "nemo-fabric-adapters-common" },
+    { name = "tomli-w" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "nemo-fabric-adapter-contract", editable = "adapter-contract" },
+    { name = "nemo-fabric-adapters-common", editable = "adapters/common" },
+    { name = "tomli-w", specifier = "~=1.2" },
+]
+provides-extras = ["harness", "full"]
+
+[[package]]
 name = "nemo-fabric-adapters-codex"
 version = "0.2.0"
 source = { editable = "adapters/codex" }
@@ -2309,6 +2343,24 @@ requires-dist = [
     { name = "nemo-fabric-adapters-common", editable = "adapters/common" },
     { name = "openai-codex", marker = "extra == 'full'", specifier = "==0.144.4" },
     { name = "openai-codex", marker = "extra == 'harness'", specifier = "==0.144.4" },
+    { name = "tomli-w", specifier = "~=1.2" },
+]
+provides-extras = ["harness", "full"]
+
+[[package]]
+name = "nemo-fabric-adapters-codex-cli"
+version = "0.2.0"
+source = { editable = "adapters/codex-cli" }
+dependencies = [
+    { name = "nemo-fabric-adapter-contract" },
+    { name = "nemo-fabric-adapters-common" },
+    { name = "tomli-w" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "nemo-fabric-adapter-contract", editable = "adapter-contract" },
+    { name = "nemo-fabric-adapters-common", editable = "adapters/common" },
     { name = "tomli-w", specifier = "~=1.2" },
 ]
 provides-extras = ["harness", "full"]

@@ -1,0 +1,83 @@
+{
+  "contract_version": "fabric.adapter/v1alpha2",
+  "adapter_id": "nvidia.fabric.codex.cli",
+  "harness": "codex",
+  "adapter_kind": "python",
+  "runner": {
+    "module": "nemo_fabric_adapters.codex_cli.adapter"
+  },
+  "requirements": {
+    "binaries": ["codex"]
+  },
+  "model_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "provider": {"type": "string", "minLength": 1},
+      "model": {"type": "string", "minLength": 1},
+      "temperature": {"type": "number"},
+      "api_key_env": {"type": "string", "minLength": 1},
+      "base_url": {"type": "string", "minLength": 1},
+      "settings": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    "required": ["provider", "model"],
+    "if": {
+      "properties": {"provider": {"const": "openai"}},
+      "required": ["provider"]
+    },
+    "else": {
+      "required": ["base_url", "api_key_env"]
+    },
+    "additionalProperties": false
+  },
+  "settings_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "sandbox": {
+        "type": "string",
+        "enum": ["read-only", "workspace-write", "danger-full-access"],
+        "default": "read-only",
+        "description": "Codex filesystem access level."
+      },
+      "skip_git_repo_check": {
+        "type": "boolean",
+        "default": false,
+        "description": "Allow Codex to run outside a Git repository."
+      },
+      "config_overrides": {
+        "type": "object",
+        "propertyNames": {
+          "pattern": "^[^.]+(?:\\.[^.]+)*$"
+        },
+        "additionalProperties": {},
+        "default": {},
+        "description": "Dotted Codex configuration keys mapped to JSON-compatible values."
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "config": {
+    "input": "agent_config",
+    "accepts": [
+      "models",
+      "models.base_url"
+    ]
+  },
+  "telemetry": {
+    "providers": {
+      "relay": {
+        "outputs": ["atif", "otel", "openinference"],
+        "integration_modes": ["hooks", "gateway"]
+      },
+      "native": {
+        "outputs": ["otel"]
+      }
+    }
+  }
+}

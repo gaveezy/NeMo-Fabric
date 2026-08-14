@@ -44,7 +44,9 @@ provider should expose more precise provenance.
 | Agent Harness | Adapter ID | Python Package | Supported Python |
 | --- | --- | --- | --- |
 | [Claude](claude/README.md) | `nvidia.fabric.claude` | `nemo-fabric-adapters-claude` | 3.11+ |
+| [Claude Code CLI](claude-cli/README.md) | `nvidia.fabric.claude.cli` | `nemo-fabric-adapters-claude-cli` | 3.11+ |
 | [Codex](codex/README.md) | `nvidia.fabric.codex` | `nemo-fabric-adapters-codex` | 3.11+ |
+| [Codex CLI](codex-cli/README.md) | `nvidia.fabric.codex.cli` | `nemo-fabric-adapters-codex-cli` | 3.11+ |
 | [LangChain Deep Agents](deepagents/README.md) | `nvidia.fabric.langchain.deepagents` | `nemo-fabric-adapters-deepagents` | 3.11+ |
 | [Hermes Agent](hermes/README.md) | `nvidia.fabric.hermes` | `nemo-fabric-adapters-hermes` | 3.11-3.13 |
 
@@ -53,7 +55,9 @@ provider should expose more precise provenance.
 | Agent Harness | Models | Tool Policy | MCP | Skills | Subagents |
 | --- | --- | --- | --- | --- | --- |
 | [Claude](claude/README.md) | Native Anthropic or a configured Anthropic Messages-compatible provider | `tools.enabled` selects built-ins; a pre-tool hook enforces enabled and blocked names across built-in, MCP, and plugin tools | Normalized: stdio, HTTP, streamable HTTP, and SSE | Normalized `skills.paths` | Not exposed |
+| [Claude Code CLI](claude-cli/README.md) | Native Anthropic or a configured Anthropic Messages-compatible provider | `tools.blocked` maps to `--disallowed-tools`; `tools.enabled` unsupported | Not exposed | Not exposed | Not exposed |
 | [Codex](codex/README.md) | Native OpenAI or a configured Responses-compatible provider | `tools.enabled` and `tools.blocked` unsupported | Normalized: stdio, HTTP, and streamable HTTP | Normalized `SKILL.md` directories | Not exposed |
+| [Codex CLI](codex-cli/README.md) | Native OpenAI or a configured Responses-compatible provider | `tools.enabled` and `tools.blocked` unsupported | Not exposed | Not exposed | Not exposed |
 | [LangChain Deep Agents](deepagents/README.md) | LangChain model providers | Middleware enforces `tools.enabled` and `tools.blocked` across built-ins, MCP, and local delegation | Normalized through `langchain-mcp-adapters` | Normalized | Built-in, declarative, and Agent Protocol |
 | [Hermes Agent](hermes/README.md) | Configurable provider, model, and base URL | `tools.enabled` and `tools.blocked` map to Hermes native toolset selectors | Normalized | Normalized | Not exposed |
 
@@ -80,6 +84,13 @@ adapter execution. `Yes` means the adapter translates the normalized field into
 its harness. `No` means an explicitly configured value fails planning instead
 of being ignored. The following table groups provider-specific Relay subfields
 and additive extension maps because their support does not vary by adapter:
+
+The CLI adapters (`nvidia.fabric.claude.cli` and `nvidia.fabric.codex.cli`)
+drive the `claude` and `codex` executables directly and accept a subset of
+their SDK counterparts' columns below: Claude Code CLI matches the Claude
+column except `tools.enabled`, `skills.paths`, and `mcp.servers` are `No`;
+Codex CLI matches the Codex column except `instructions.system`,
+`skills.paths`, and `mcp.servers` are `No`.
 
 | `FabricConfig` Field | Claude | Codex | Deep Agents | Hermes Agent |
 | --- | --- | --- | --- | --- |
@@ -135,14 +146,17 @@ and produces normalized trajectories in Agent Trajectory Interchange Format
 | Agent Harness | State Retained Across Turns | Relay Integration | Per-Turn Behavior | Stop Behavior | Remote Service |
 | --- | --- | --- | --- | --- | --- |
 | [Claude](claude/README.md) | `ClaudeSDKClient` and Claude session ID | Runtime-owned Relay CLI gateway and generated Claude hooks | Calls `client.query()`, validates the session ID, and collects ATOF and ATIF | Disconnects the client, stops the gateway, and removes the generated plugin | Not implemented |
+| [Claude Code CLI](claude-cli/README.md) | Claude session ID | Runtime-owned Relay CLI gateway and generated Claude hook settings | Runs one headless `claude --print` turn and resumes the tracked session | Stops the gateway and removes the generated settings | Not implemented |
 | [Codex](codex/README.md) | `AsyncCodex` app-server client and SDK thread | Runtime-owned Relay CLI gateway and Codex SDK hooks | Reuses the SDK thread and persists its thread ID | Closes the SDK client and app server, then stops the gateway | Not implemented |
+| [Codex CLI](codex-cli/README.md) | Codex thread ID | Runtime-owned Relay CLI gateway and generated Codex profile hooks | Runs one `codex exec --json` turn and resumes the tracked thread | Stops the gateway and removes the generated profile | Not implemented |
 | [LangChain Deep Agents](deepagents/README.md) | Compiled LangGraph agent, checkpointer, and thread ID | NeMo Relay Python SDK integration added when the agent is compiled | Creates a fresh Relay request scope and callback for each invocation | Closes the checkpointer; no gateway process | Not implemented |
 | [Hermes Agent](hermes/README.md) | `AIAgent`, `SessionDB`, and conversation history | Hermes Agent NeMo Relay plugin context | Finalizes and flushes Relay after each invocation | Closes the agent and database, then exits the plugin context | Not implemented |
 
-Telemetry output names use the descriptor contract values. Claude, Codex, and
-Hermes Agent can emit NeMo Relay ATIF, OpenTelemetry, and OpenInference output. Deep
-Agents supports the same Relay outputs plus native OpenTelemetry and
-OpenInference; Codex also supports native OpenTelemetry.
+Telemetry output names use the descriptor contract values. Claude, Claude Code
+CLI, Codex, Codex CLI, and Hermes Agent can emit NeMo Relay ATIF,
+OpenTelemetry, and OpenInference output. Deep Agents supports the same Relay
+outputs plus native OpenTelemetry and OpenInference; Codex and Codex CLI also
+support native OpenTelemetry.
 
 Shared lifecycle, Relay gateway, hook, and payload helpers are documented in
 the [adapter utilities guide](common/README.md).

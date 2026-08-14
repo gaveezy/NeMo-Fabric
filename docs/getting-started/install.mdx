@@ -64,10 +64,16 @@ the same Python environment:
 
 ```bash
 pip install "nemo-fabric[claude]"
+pip install "nemo-fabric[claude-cli]"
 pip install "nemo-fabric[codex]"
+pip install "nemo-fabric[codex-cli]"
 pip install "nemo-fabric[deepagents]"
 pip install "nemo-fabric[hermes-agent]"
 ```
+
+The `claude-cli` and `codex-cli` extras install adapters that drive the
+external `claude` and `codex` executables directly; install those executables
+separately and keep them on `PATH`.
 
 Each `nemo-fabric` harness extra installs the corresponding adapter package
 with its `harness` extra. You can combine independent `nemo-fabric` extras. For

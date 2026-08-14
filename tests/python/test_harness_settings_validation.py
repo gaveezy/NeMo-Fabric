@@ -20,7 +20,13 @@ from nemo_fabric import FabricConfigError
 ROOT = Path(__file__).resolve().parents[2]
 ADAPTER_DESCRIPTORS = {
     "nvidia.fabric.claude": ROOT / "adapters" / "claude" / "fabric-adapter.json",
+    "nvidia.fabric.claude.cli": (
+        ROOT / "adapters" / "claude-cli" / "fabric-adapter.json"
+    ),
     "nvidia.fabric.codex": ROOT / "adapters" / "codex" / "fabric-adapter.json",
+    "nvidia.fabric.codex.cli": (
+        ROOT / "adapters" / "codex-cli" / "fabric-adapter.json"
+    ),
     "nvidia.fabric.langchain.deepagents": (
         ROOT / "adapters" / "deepagents" / "fabric-adapter.json"
     ),
@@ -67,6 +73,23 @@ _config = partial(
                 },
             },
             id="codex",
+        ),
+        pytest.param(
+            "nvidia.fabric.claude.cli",
+            {"permission_mode": "dontAsk"},
+            id="claude-cli",
+        ),
+        pytest.param(
+            "nvidia.fabric.codex.cli",
+            {
+                "sandbox": "workspace-write",
+                "skip_git_repo_check": True,
+                "config_overrides": {
+                    "features.apps": False,
+                    "web_search": "disabled",
+                },
+            },
+            id="codex-cli",
         ),
         pytest.param(
             "nvidia.fabric.langchain.deepagents",
@@ -204,6 +227,30 @@ def test_settings_schema_defaults_are_not_applied(
             {"permission_mode": "invalid"},
             "harness.settings.permission_mode",
             id="claude-permission-mode",
+        ),
+        pytest.param(
+            "nvidia.fabric.claude.cli",
+            {"permission_mode": "invalid"},
+            "harness.settings.permission_mode",
+            id="claude-cli-permission-mode",
+        ),
+        pytest.param(
+            "nvidia.fabric.claude.cli",
+            {"max_budget_usd": 1.5},
+            "harness.settings.max_budget_usd",
+            id="claude-cli-unknown-sdk-setting",
+        ),
+        pytest.param(
+            "nvidia.fabric.codex.cli",
+            {"sandbox": "invalid"},
+            "harness.settings.sandbox",
+            id="codex-cli-sandbox",
+        ),
+        pytest.param(
+            "nvidia.fabric.codex.cli",
+            {"approval_mode": "deny_all"},
+            "harness.settings.approval_mode",
+            id="codex-cli-unknown-sdk-setting",
         ),
         pytest.param(
             "nvidia.fabric.codex",
