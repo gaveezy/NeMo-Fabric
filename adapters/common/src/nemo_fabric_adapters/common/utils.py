@@ -484,6 +484,15 @@ def write_relay_configs(
                 raise ValueError(
                     f"unsupported NeMo Relay observability config version {observability_version}"
                 )
+            # Emit the observability config version the installed Relay CLI
+            # accepts; Relay 0.7 rejects version 2 documents.
+            for component in plugin_config.get("components", []):
+                if (
+                    isinstance(component, dict)
+                    and component.get("kind") == "observability"
+                    and isinstance(component.get("config"), dict)
+                ):
+                    component["config"]["version"] = observability_version
             plugin_config_path = config_dir / "plugins.toml"
             plugin_config_path.write_text(
                 tomli_w.dumps(plugin_config),

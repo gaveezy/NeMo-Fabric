@@ -21,7 +21,7 @@ RELAY_HEALTH_TIMEOUT_SECONDS = 10.0
 RELAY_STOP_TIMEOUT_SECONDS = 5.0
 RELAY_VERSION_TIMEOUT_SECONDS = 5.0
 RELAY_MINIMUM_VERSION = (0, 6, 0)
-RELAY_MAXIMUM_VERSION = (0, 7, 0)
+RELAY_MAXIMUM_VERSION = (0, 8, 0)
 
 
 class RelayGatewayError(RuntimeError):
@@ -96,9 +96,13 @@ def relay_cli_contract(executable: Path) -> RelayCliContract:
         raise RelayGatewayError(
             "unsupported NeMo Relay CLI version "
             f"{'.'.join(str(value) for value in version)}; "
-            "NeMo Fabric requires >=0.6.0,<0.7.0"
+            "NeMo Fabric requires >=0.6.0,<0.8.0"
         )
-    return RelayCliContract(version=version, observability_version=2)
+    # Relay 0.7 removed observability config version 2; it requires version 3.
+    observability_version = 3 if version >= (0, 7, 0) else 2
+    return RelayCliContract(
+        version=version, observability_version=observability_version
+    )
 
 
 def wait_for_relay_gateway(
