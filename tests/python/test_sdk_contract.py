@@ -811,6 +811,41 @@ def test_artifact_ref_omits_empty_metadata_and_preserves_values():
     ).to_mapping()["metadata"] == {"rows": 10}
 
 
+def test_relay_otlp_v3_endpoints_serialize_without_flat_fields():
+    """Observability v3: typed endpoints only — the legacy flat OTLP
+    fields must stay unset (relay v3 rejects them at the section top
+    level), including through a full validation round-trip."""
+    from nemo_fabric import RelayObservabilityConfig
+
+    observability = RelayObservabilityConfig.model_validate(
+        {
+            "opentelemetry": {
+                "enabled": True,
+                "endpoints": [
+                    {
+                        "type": "gen_ai",
+                        "endpoint": "http://collector:3000/api/public/otel",
+                        "service_name": "agent-under-test",
+                        "headers": {"Authorization": "Basic abc"},
+                    }
+                ],
+            }
+        }
+    )
+    # Round-trip through validation again (mirrors start_runtime).
+    observability = RelayObservabilityConfig.model_validate(
+        observability.model_dump(mode="json", exclude_none=True)
+    )
+    otlp = observability.model_dump(mode="json", exclude_none=True)["opentelemetry"]
+
+    assert otlp["enabled"] is True
+    assert otlp["endpoints"][0]["type"] == "gen_ai"
+    assert otlp["endpoints"][0]["transport"] == "http_binary"
+    assert otlp["endpoints"][0]["headers"] == {"Authorization": "Basic abc"}
+    for legacy_field in ("transport", "endpoint", "service_name", "timeout_millis"):
+        assert legacy_field not in otlp
+
+
 def test_fabric_config_authors_first_class_relay_observability():
     config = _fabric_config()
 

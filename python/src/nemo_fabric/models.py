@@ -650,19 +650,55 @@ class RelayAtifConfig(FabricBaseModel):
     ) = None
 
 
+class RelayOtlpEndpointConfig(FabricBaseModel):
+    """One typed OTLP endpoint (NeMo Relay observability config v3).
+
+    Relay 0.7 moved the exporter settings from the flat OpenTelemetry
+    section into a list of typed endpoints; ``type`` selects the span
+    vocabulary (``gen_ai`` emits the OpenTelemetry GenAI semantic
+    conventions, ``openinference`` the OpenInference ones, ``full`` the
+    unabridged span set).
+    """
+
+    type: Literal["full", "gen_ai", "openinference"] = "gen_ai"
+    transport: Literal["http_binary", "grpc"] = "http_binary"
+    endpoint: str
+    headers: dict[str, str] = Field(
+        default_factory=dict, exclude_if=lambda value: not value
+    )
+    header_env: dict[str, str] = Field(
+        default_factory=dict, exclude_if=lambda value: not value
+    )
+    service_name: str | None = None
+    timeout_millis: int | None = None
+
+
 class RelayOtlpConfig(FabricBaseModel):
-    """NeMo Relay OTLP export configuration for OpenTelemetry/OpenInference."""
+    """NeMo Relay OTLP export configuration for OpenTelemetry/OpenInference.
+
+    ``endpoints`` is the observability config v3 shape (relay >= 0.7).
+    The flat fields below are the legacy v2 spelling; they default to
+    unset (and are then omitted from serialization) because relay v3
+    rejects them at the section top level once typed endpoints exist —
+    a flat default silently emitted next to ``endpoints`` would fail
+    gateway startup.
+    """
 
     enabled: bool = False
-    transport: Literal["http_binary", "grpc"] = "http_binary"
+    endpoints: list[RelayOtlpEndpointConfig | dict[str, Any]] | None = None
+    transport: Literal["http_binary", "grpc"] | None = None
     endpoint: str | None = None
-    headers: dict[str, str] = Field(default_factory=dict)
-    resource_attributes: dict[str, str] = Field(default_factory=dict)
-    service_name: str = "nemo-relay"
+    headers: dict[str, str] = Field(
+        default_factory=dict, exclude_if=lambda value: not value
+    )
+    resource_attributes: dict[str, str] = Field(
+        default_factory=dict, exclude_if=lambda value: not value
+    )
+    service_name: str | None = None
     service_namespace: str | None = None
     service_version: str | None = None
     instrumentation_scope: str | None = None
-    timeout_millis: int = 3000
+    timeout_millis: int | None = None
 
 
 class RelayObservabilityConfig(FabricBaseModel):
