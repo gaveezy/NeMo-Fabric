@@ -2241,7 +2241,7 @@
     },
     "RelayOtlpConfig": {
       "additionalProperties": true,
-      "description": "Relay OpenTelemetry/OpenInference export configuration.",
+      "description": "Relay OpenTelemetry/OpenInference export configuration.\n\nThe flat exporter fields are the legacy (observability config v2)\nspelling and stay unserialized when unset: NeMo Relay observability\nv3 moves exporter settings into a list of typed `endpoints` (carried\nthrough `extensions`) and rejects the flat fields at the section top\nlevel, so a silently re-emitted default would fail gateway startup.",
       "properties": {
         "enabled": {
           "default": false,
@@ -2249,7 +2249,7 @@
           "type": "boolean"
         },
         "endpoint": {
-          "description": "OTLP endpoint.",
+          "description": "OTLP endpoint (legacy flat form).",
           "type": [
             "string",
             "null"
@@ -2259,7 +2259,7 @@
           "additionalProperties": {
             "type": "string"
           },
-          "description": "OTLP headers.",
+          "description": "OTLP headers (legacy flat form).",
           "type": "object"
         },
         "instrumentation_scope": {
@@ -2277,9 +2277,11 @@
           "type": "object"
         },
         "service_name": {
-          "default": "nemo-relay",
-          "description": "OTLP service name.",
-          "type": "string"
+          "description": "OTLP service name (legacy flat form).",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "service_namespace": {
           "description": "OTLP service namespace.",
@@ -2296,17 +2298,25 @@
           ]
         },
         "timeout_millis": {
-          "default": 3000,
-          "description": "Request timeout in milliseconds.",
+          "description": "Request timeout in milliseconds (legacy flat form).",
           "format": "uint64",
           "maximum": 18446744073709551615,
           "minimum": 0,
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "transport": {
-          "$ref": "#/$defs/RelayOtlpTransport",
-          "default": "http_binary",
-          "description": "OTLP transport."
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RelayOtlpTransport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "OTLP transport (legacy flat form)."
         }
       },
       "type": "object"

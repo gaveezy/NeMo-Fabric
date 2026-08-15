@@ -1142,26 +1142,32 @@ pub enum RelayAtifStorageConfig {
 }
 
 /// Relay OpenTelemetry/OpenInference export configuration.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+///
+/// The flat exporter fields are the legacy (observability config v2)
+/// spelling and stay unserialized when unset: NeMo Relay observability
+/// v3 moves exporter settings into a list of typed `endpoints` (carried
+/// through `extensions`) and rejects the flat fields at the section top
+/// level, so a silently re-emitted default would fail gateway startup.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct RelayOtlpConfig {
     /// Whether OTLP export is enabled.
     #[serde(default)]
     pub enabled: bool,
-    /// OTLP transport.
-    #[serde(default)]
-    pub transport: RelayOtlpTransport,
-    /// OTLP endpoint.
+    /// OTLP transport (legacy flat form).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport: Option<RelayOtlpTransport>,
+    /// OTLP endpoint (legacy flat form).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub endpoint: Option<String>,
-    /// OTLP headers.
+    /// OTLP headers (legacy flat form).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub headers: BTreeMap<String, String>,
     /// OTLP resource attributes.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub resource_attributes: BTreeMap<String, String>,
-    /// OTLP service name.
-    #[serde(default = "default_relay_service_name")]
-    pub service_name: String,
+    /// OTLP service name (legacy flat form).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_name: Option<String>,
     /// OTLP service namespace.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub service_namespace: Option<String>,
@@ -1171,31 +1177,13 @@ pub struct RelayOtlpConfig {
     /// OTLP instrumentation scope.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instrumentation_scope: Option<String>,
-    /// Request timeout in milliseconds.
-    #[serde(default = "default_relay_timeout_millis")]
+    /// Request timeout in milliseconds (legacy flat form).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(max = u64::MAX))]
-    pub timeout_millis: u64,
-    /// Additive OTLP fields.
+    pub timeout_millis: Option<u64>,
+    /// Additive OTLP fields (observability v3 `endpoints` ride here).
     #[serde(default, flatten)]
     pub extensions: BTreeMap<String, Value>,
-}
-
-impl Default for RelayOtlpConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            transport: RelayOtlpTransport::default(),
-            endpoint: None,
-            headers: BTreeMap::new(),
-            resource_attributes: BTreeMap::new(),
-            service_name: default_relay_service_name(),
-            service_namespace: None,
-            service_version: None,
-            instrumentation_scope: None,
-            timeout_millis: default_relay_timeout_millis(),
-            extensions: BTreeMap::new(),
-        }
-    }
 }
 
 /// Relay validation policy.
@@ -1326,10 +1314,6 @@ fn default_relay_atif_filename_template() -> String {
 
 fn default_relay_timeout_millis() -> u64 {
     3000
-}
-
-fn default_relay_service_name() -> String {
-    "nemo-relay".to_string()
 }
 
 fn default_relay_unsupported_value_behavior() -> RelayUnsupportedBehavior {
