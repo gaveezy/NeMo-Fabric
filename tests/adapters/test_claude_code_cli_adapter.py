@@ -12,7 +12,7 @@ import pytest
 from nemo_fabric import Fabric
 from nemo_fabric_adapter_contract.models import AgentConfig
 from nemo_fabric_adapter_contract.models import RuntimeContext
-from nemo_fabric_adapters.claude_cli import adapter
+from nemo_fabric_adapters.claude_code_cli import adapter
 
 
 def runtime_input(payload):
@@ -41,7 +41,7 @@ def lifecycle_invocation(payload):
 
 
 async def invoke_once_async(payload):
-    runtime = adapter.ClaudeCliRuntime()
+    runtime = adapter.ClaudeCodeCliRuntime()
     await runtime.start(lifecycle_start_payload(payload))
     try:
         return await runtime.invoke(lifecycle_invocation(payload))
@@ -55,7 +55,7 @@ def invoke_once(payload):
 
 def runtime_start_error(payload):
     async def scenario() -> adapter.lifecycle.LifecycleError:
-        runtime = adapter.ClaudeCliRuntime()
+        runtime = adapter.ClaudeCodeCliRuntime()
         with pytest.raises(adapter.lifecycle.LifecycleError) as caught:
             await runtime.start(lifecycle_start_payload(payload))
         return caught.value
@@ -68,7 +68,7 @@ def claude_payload_fixture(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     return {
-        "agent_name": "claude-cli-test",
+        "agent_name": "claude-code-cli-test",
         "base_dir": str(tmp_path),
         "config": {
             "harness": {
@@ -91,7 +91,7 @@ def claude_payload_fixture(tmp_path):
             "invocation_id": "invocation-1",
             "request_id": "request-1",
             "environment": {
-                "environment_id": "environment-claude-cli-1",
+                "environment_id": "environment-claude-code-cli-1",
                 "provider": "local",
                 "control_location": "in_env_control",
                 "ownership": "caller_owned",
@@ -186,7 +186,7 @@ async def test_runtime_invokes_and_resumes_session(
     write_mock_claude(mock_claude, log_path=log_path)
     monkeypatch.setenv("FABRIC_TEST_CLAUDE_CLI_PATH", str(mock_claude))
 
-    runtime = adapter.ClaudeCliRuntime()
+    runtime = adapter.ClaudeCodeCliRuntime()
     await runtime.start(lifecycle_start_payload(claude_payload))
     try:
         first = await runtime.invoke(lifecycle_invocation(claude_payload))
@@ -230,7 +230,7 @@ def test_custom_provider_requires_credentials_and_endpoint(claude_payload):
 
     error = runtime_start_error(claude_payload)
 
-    assert error.code == "claude_cli_invalid_configuration"
+    assert error.code == "claude_code_cli_invalid_configuration"
 
 
 def test_invalid_permission_mode_fails_start(claude_payload):
@@ -238,7 +238,7 @@ def test_invalid_permission_mode_fails_start(claude_payload):
 
     error = runtime_start_error(claude_payload)
 
-    assert error.code == "claude_cli_invalid_configuration"
+    assert error.code == "claude_code_cli_invalid_configuration"
 
 
 def test_prepare_claude_relay_stages_hook_settings(
@@ -277,7 +277,7 @@ def test_prepare_claude_relay_stages_hook_settings(
     )
     config, context, base_dir = runtime_input(claude_payload)
 
-    relay = adapter.prepare_claude_relay("claude-cli-test", config, context, base_dir)
+    relay = adapter.prepare_claude_relay("claude-code-cli-test", config, context, base_dir)
 
     assert relay is not None
     assert relay.gateway.url == "http://127.0.0.1:43210"
@@ -297,7 +297,7 @@ async def test_relay_invocation_reports_runtime_and_artifacts(
     mock_claude = tmp_path / "mock-claude"
     write_mock_claude(mock_claude, log_path=log_path)
     monkeypatch.setenv("FABRIC_TEST_CLAUDE_CLI_PATH", str(mock_claude))
-    relay = adapter.ClaudeCliRelaySettings(
+    relay = adapter.ClaudeCodeCliRelaySettings(
         gateway=adapter.relay_gateway.RelayGatewayLaunch(
             executable=tmp_path / "nemo-relay",
             config_path=tmp_path / "relay" / "config.toml",
@@ -349,7 +349,7 @@ def test_process_failure_returns_structured_error(
     output = invoke_once(claude_payload)
 
     assert output["failed"] is True
-    assert output["error"]["code"] == "claude_cli_process_failed"
+    assert output["error"]["code"] == "claude_code_cli_process_failed"
     assert output["error"]["metadata"]["exit_code"] == 2
 
 
@@ -363,7 +363,7 @@ def test_missing_result_is_reported(claude_payload, monkeypatch, tmp_path):
     output = invoke_once(claude_payload)
 
     assert output["failed"] is True
-    assert output["error"]["code"] == "claude_cli_missing_result"
+    assert output["error"]["code"] == "claude_code_cli_missing_result"
 
 
 def test_missing_cli_is_reported(claude_payload, monkeypatch, tmp_path):
@@ -374,7 +374,7 @@ def test_missing_cli_is_reported(claude_payload, monkeypatch, tmp_path):
     output = invoke_once(claude_payload)
 
     assert output["failed"] is True
-    assert output["error"]["code"] == "claude_cli_not_found"
+    assert output["error"]["code"] == "claude_code_cli_not_found"
 
 
 def test_structured_input_is_rejected(claude_payload, monkeypatch, tmp_path):
@@ -386,7 +386,7 @@ def test_structured_input_is_rejected(claude_payload, monkeypatch, tmp_path):
     output = invoke_once(claude_payload)
 
     assert output["failed"] is True
-    assert output["error"]["code"] == "claude_cli_invalid_request"
+    assert output["error"]["code"] == "claude_code_cli_invalid_request"
 
 
 def test_lifecycle_entrypoint_serves_ordered_operations(
@@ -417,7 +417,7 @@ def test_lifecycle_entrypoint_serves_ordered_operations(
     ]
 
     completed = subprocess.run(
-        [sys.executable, "-m", "nemo_fabric_adapters.claude_cli.adapter"],
+        [sys.executable, "-m", "nemo_fabric_adapters.claude_code_cli.adapter"],
         input="".join(json.dumps(request) + "\n" for request in requests),
         text=True,
         capture_output=True,
@@ -438,7 +438,7 @@ def test_lifecycle_entrypoint_serves_ordered_operations(
     assert output["response"] == "session-fake:Inspect the change."
 
 
-async def test_fabric_runtime_invokes_claude_cli_then_resumes(
+async def test_fabric_runtime_invokes_claude_code_cli_then_resumes(
     monkeypatch, tmp_path
 ):
     log_path = tmp_path / "claude-argv.jsonl"
@@ -446,9 +446,9 @@ async def test_fabric_runtime_invokes_claude_cli_then_resumes(
     write_mock_claude(mock_claude, log_path=log_path)
     monkeypatch.setenv("FABRIC_TEST_CLAUDE_CLI_PATH", str(mock_claude))
     config = {
-        "metadata": {"name": "claude-cli-runtime-test"},
+        "metadata": {"name": "claude-code-cli-runtime-test"},
         "harness": {
-            "adapter_id": "nvidia.fabric.claude.cli",
+            "adapter_id": "nvidia.fabric.claude.code.cli",
             "resolution": "preinstalled",
         },
         "models": {
@@ -479,15 +479,15 @@ async def test_fabric_runtime_invokes_claude_cli_then_resumes(
     assert commands[1][commands[1].index("--resume") + 1] == "session-fake"
 
 
-def test_plan_resolves_claude_cli_descriptor(tmp_path):
+def test_plan_resolves_claude_code_cli_descriptor(tmp_path):
     from nemo_fabric import FabricConfig
 
     plan = Fabric().plan(
         FabricConfig.from_mapping(
             {
-                "metadata": {"name": "claude-cli-plan-test"},
+                "metadata": {"name": "claude-code-cli-plan-test"},
                 "harness": {
-                    "adapter_id": "nvidia.fabric.claude.cli",
+                    "adapter_id": "nvidia.fabric.claude.code.cli",
                     "resolution": "preinstalled",
                 },
             }
@@ -495,5 +495,188 @@ def test_plan_resolves_claude_cli_descriptor(tmp_path):
         base_dir=tmp_path,
     )
 
-    assert plan.adapter.adapter_id == "nvidia.fabric.claude.cli"
+    assert plan.adapter.adapter_id == "nvidia.fabric.claude.code.cli"
     assert plan.adapter.harness == "claude"
+
+
+def make_skill(tmp_path: Path, name: str) -> Path:
+    skill = tmp_path / "skills" / name
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("# skill\n", encoding="utf-8")
+    return skill
+
+
+def test_mcp_config_is_staged_with_projected_credentials(claude_payload):
+    claude_payload["config"]["mcp"] = {
+        "servers": {
+            "files": {
+                "transport": "stdio",
+                "url": "mcp-files",
+                "args": ["--root", "."],
+                "env": {"FILES_TOKEN": "secret-value"},
+            },
+            "search": {
+                "transport": "streamable-http",
+                "url": "https://mcp.example.test/search",
+                "custom_headers": {"X-Api-Key": "${SEARCH_KEY}"},
+            },
+        }
+    }
+    config, context, base_dir = runtime_input(claude_payload)
+
+    staged = adapter._stage_mcp_config(config, context, base_dir)
+
+    assert staged is not None
+    document = json.loads(staged.config_path.read_text(encoding="utf-8"))
+    files = document["mcpServers"]["files"]
+    assert files["type"] == "stdio"
+    assert files["command"] == "mcp-files"
+    assert "secret-value" not in staged.config_path.read_text(encoding="utf-8")
+    projected = files["env"]["FILES_TOKEN"]
+    assert projected.startswith("${NEMO_FABRIC_CLAUDE_CODE_CLI_MCP_")
+    assert staged.environment[projected[2:-1]] == "secret-value"
+    assert document["mcpServers"]["search"] == {
+        "type": "http",
+        "url": "https://mcp.example.test/search",
+        "headers": {"X-Api-Key": "${SEARCH_KEY}"},
+    }
+    adapter._cleanup_mcp_config(staged.config_path)
+    assert not staged.config_path.parent.exists()
+
+
+def test_mcp_authentication_is_rejected(claude_payload):
+    claude_payload["config"]["mcp"] = {
+        "servers": {
+            "secure": {
+                "transport": "http",
+                "url": "https://mcp.example.test",
+                "authentication": {"type": "oauth2"},
+            }
+        }
+    }
+
+    error = runtime_start_error(claude_payload)
+
+    assert error.code == "claude_code_cli_invalid_configuration"
+
+
+def test_invalid_skill_path_is_rejected(claude_payload):
+    claude_payload["config"]["skills"] = {"paths": ["missing-skill"]}
+
+    error = runtime_start_error(claude_payload)
+
+    assert error.code == "claude_code_cli_invalid_configuration"
+
+
+async def test_skills_and_mcp_reach_the_cli_and_are_cleaned_up(
+    claude_payload, monkeypatch, tmp_path
+):
+    make_skill(tmp_path, "review")
+    claude_payload["config"]["skills"] = {"paths": ["skills/review"]}
+    claude_payload["config"]["mcp"] = {
+        "servers": {"search": {"transport": "http", "url": "https://mcp.example.test"}}
+    }
+    log_path = tmp_path / "claude-argv.jsonl"
+    mock_claude = tmp_path / "mock-claude"
+    write_mock_claude(mock_claude, log_path=log_path)
+    monkeypatch.setenv("FABRIC_TEST_CLAUDE_CLI_PATH", str(mock_claude))
+
+    runtime = adapter.ClaudeCodeCliRuntime()
+    await runtime.start(lifecycle_start_payload(claude_payload))
+    mcp_config_path = runtime._mcp.config_path
+    plugin_root = runtime._skill_plugin_root
+    assert (plugin_root / "skills" / "review" / "SKILL.md").is_file()
+    try:
+        output = await runtime.invoke(lifecycle_invocation(claude_payload))
+    finally:
+        await runtime.stop()
+
+    assert output["completed"] is True
+    command = argv_log(log_path)[0]
+    assert command[command.index("--mcp-config") + 1] == str(mcp_config_path)
+    assert "--strict-mcp-config" in command
+    assert command[command.index("--plugin-dir") + 1] == str(plugin_root)
+    assert command[command.index("--allowedTools") + 1] == "Skill"
+    assert not mcp_config_path.parent.exists()
+    assert not plugin_root.exists()
+
+
+def test_build_command_maps_budget_and_setting_sources(claude_payload):
+    claude_payload["config"]["harness"]["settings"].update(
+        {"max_budget_usd": 2.5, "setting_sources": ["user", "project"]}
+    )
+    config, _, base_dir = runtime_input(claude_payload)
+
+    command = adapter.build_command(config, base_dir)
+
+    assert command[command.index("--max-budget-usd") + 1] == "2.5"
+    assert "--setting-sources=user,project" in command
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"max_budget_usd": 0},
+        {"max_budget_usd": True},
+        {"setting_sources": "project"},
+        {"setting_sources": ["invalid"]},
+    ],
+)
+def test_invalid_budget_and_sources_fail_start(claude_payload, settings):
+    claude_payload["config"]["harness"]["settings"].update(settings)
+
+    error = runtime_start_error(claude_payload)
+
+    assert error.code == "claude_code_cli_invalid_configuration"
+
+
+def test_tool_definitions_are_projected_onto_mcp(claude_payload):
+    claude_payload["config"]["tools"] = {
+        "definitions": {
+            "lint": {
+                "kind": "mcp_stdio",
+                "ref": "acme-lint-mcp",
+                "settings": {"args": ["--serve"], "env": {"LINT_TOKEN": "token"}},
+            }
+        },
+        "blocked": ["Bash"],
+    }
+    config, context, base_dir = runtime_input(claude_payload)
+
+    staged = adapter._stage_mcp_config(config, context, base_dir)
+
+    assert staged is not None
+    document = json.loads(staged.config_path.read_text(encoding="utf-8"))
+    lint = document["mcpServers"]["lint"]
+    assert lint["type"] == "stdio"
+    assert lint["command"] == "acme-lint-mcp"
+    assert lint["args"] == ["--serve"]
+    projected = lint["env"]["LINT_TOKEN"]
+    assert projected.startswith("${NEMO_FABRIC_CLAUDE_CODE_CLI_MCP_")
+    assert staged.environment[projected[2:-1]] == "token"
+    adapter._cleanup_mcp_config(staged.config_path)
+
+
+def test_tool_definition_kind_is_bounded(claude_payload):
+    claude_payload["config"]["tools"] = {
+        "definitions": {
+            "lint": {"kind": "python_entrypoint", "ref": "acme.tools:lint"}
+        }
+    }
+
+    error = runtime_start_error(claude_payload)
+
+    assert error.code == "claude_code_cli_invalid_configuration"
+
+
+def test_tool_definition_name_collision_is_rejected(claude_payload):
+    claude_payload["config"]["mcp"] = {
+        "servers": {"lint": {"transport": "http", "url": "https://mcp.example.test"}}
+    }
+    claude_payload["config"]["tools"] = {
+        "definitions": {"lint": {"kind": "mcp_stdio", "ref": "acme-lint-mcp"}}
+    }
+
+    error = runtime_start_error(claude_payload)
+
+    assert error.code == "claude_code_cli_invalid_configuration"

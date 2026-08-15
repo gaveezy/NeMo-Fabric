@@ -55,7 +55,7 @@ navigation:
           - page: Claude Code
             path: ./integrations/harness/claude.mdx
           - page: Claude Code CLI
-            path: ./integrations/harness/claude-cli.mdx
+            path: ./integrations/harness/claude-code-cli.mdx
           - page: Codex
             path: ./integrations/harness/codex.mdx
           - page: Codex CLI

@@ -20,8 +20,8 @@ from nemo_fabric import FabricConfigError
 ROOT = Path(__file__).resolve().parents[2]
 ADAPTER_DESCRIPTORS = {
     "nvidia.fabric.claude": ROOT / "adapters" / "claude" / "fabric-adapter.json",
-    "nvidia.fabric.claude.cli": (
-        ROOT / "adapters" / "claude-cli" / "fabric-adapter.json"
+    "nvidia.fabric.claude.code.cli": (
+        ROOT / "adapters" / "claude-code-cli" / "fabric-adapter.json"
     ),
     "nvidia.fabric.codex": ROOT / "adapters" / "codex" / "fabric-adapter.json",
     "nvidia.fabric.codex.cli": (
@@ -75,15 +75,27 @@ _config = partial(
             id="codex",
         ),
         pytest.param(
-            "nvidia.fabric.claude.cli",
-            {"permission_mode": "dontAsk"},
-            id="claude-cli",
+            "nvidia.fabric.claude.code.cli",
+            {
+                "permission_mode": "dontAsk",
+                "max_budget_usd": 1.5,
+                "setting_sources": ["user", "project"],
+            },
+            id="claude-code-cli",
         ),
         pytest.param(
             "nvidia.fabric.codex.cli",
             {
                 "sandbox": "workspace-write",
                 "skip_git_repo_check": True,
+                "approval_mode": "deny_all",
+                "personality": "pragmatic",
+                "reasoning_effort": "high",
+                "service_tier": "priority",
+                "output_schema": {
+                    "type": "object",
+                    "properties": {"summary": {"type": "string"}},
+                },
                 "config_overrides": {
                     "features.apps": False,
                     "web_search": "disabled",
@@ -229,16 +241,22 @@ def test_settings_schema_defaults_are_not_applied(
             id="claude-permission-mode",
         ),
         pytest.param(
-            "nvidia.fabric.claude.cli",
+            "nvidia.fabric.claude.code.cli",
             {"permission_mode": "invalid"},
             "harness.settings.permission_mode",
-            id="claude-cli-permission-mode",
+            id="claude-code-cli-permission-mode",
         ),
         pytest.param(
-            "nvidia.fabric.claude.cli",
-            {"max_budget_usd": 1.5},
+            "nvidia.fabric.claude.code.cli",
+            {"max_budget_usd": 0},
             "harness.settings.max_budget_usd",
-            id="claude-cli-unknown-sdk-setting",
+            id="claude-code-cli-budget-range",
+        ),
+        pytest.param(
+            "nvidia.fabric.claude.code.cli",
+            {"setting_sources": ["project", "invalid"]},
+            "harness.settings.setting_sources.1",
+            id="claude-code-cli-setting-sources-item",
         ),
         pytest.param(
             "nvidia.fabric.codex.cli",
@@ -248,8 +266,14 @@ def test_settings_schema_defaults_are_not_applied(
         ),
         pytest.param(
             "nvidia.fabric.codex.cli",
-            {"approval_mode": "deny_all"},
+            {"approval_mode": "ask"},
             "harness.settings.approval_mode",
+            id="codex-cli-approval-mode",
+        ),
+        pytest.param(
+            "nvidia.fabric.codex.cli",
+            {"developer_instructions": "legacy"},
+            "harness.settings.developer_instructions",
             id="codex-cli-unknown-sdk-setting",
         ),
         pytest.param(

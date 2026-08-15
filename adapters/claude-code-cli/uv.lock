@@ -12,7 +12,7 @@ requires-dist = [{ name = "pydantic", marker = "extra == 'pydantic'", specifier 
 provides-extras = ["pydantic"]
 
 [[package]]
-name = "nemo-fabric-adapters-claude-cli"
+name = "nemo-fabric-adapters-claude-code-cli"
 version = "0.2.0"
 source = { editable = "." }
 dependencies = [

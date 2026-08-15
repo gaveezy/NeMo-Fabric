@@ -11,8 +11,9 @@ SDK. Each invocation executes one non-interactive Codex turn; later turns of
 the same runtime resume the same Codex thread with `codex exec resume`.
 
 Use this adapter when the execution environment provides a managed `codex`
-executable. For SDK-managed execution with MCP, skills, and structured
-instructions, use the [`nvidia.fabric.codex` adapter](codex.mdx).
+executable. For SDK-managed execution with MCP authentication and per-turn
+options such as reasoning effort and output schemas, use the
+[`nvidia.fabric.codex` adapter](codex.mdx).
 
 ## Install the Adapter
 
@@ -47,10 +48,18 @@ from nemo_fabric import HarnessConfig
 harness = HarnessConfig(adapter_id="nvidia.fabric.codex.cli")
 ```
 
-The adapter accepts the normalized `models` and `models.base_url` fields. The
-`openai` provider uses Codex's native credential resolution, including a cached
-`codex login`; another provider name requires an OpenAI Responses-compatible
-`base_url` and `api_key_env`.
+The adapter accepts the normalized `models`, `models.base_url`,
+`instructions.system`, `mcp`, and `skills` fields. The `openai` provider uses
+Codex's native credential resolution, including a cached `codex login`;
+another provider name requires an OpenAI Responses-compatible `base_url` and
+`api_key_env`.
+
+`instructions.system` maps to the Codex `instructions` configuration key,
+replacing the request-level system instructions. MCP servers map to the
+generated profile's `mcp_servers` table; MCP `authentication` is not supported
+because `codex exec` has no non-interactive login path. Skills are symlinked
+into the workspace discovery root (`<workspace>/.agents/skills/<name>`) for
+the lifetime of the runtime and removed when it stops.
 
 The descriptor validates the following `harness.settings` fields:
 
@@ -58,7 +67,12 @@ The descriptor validates the following `harness.settings` fields:
 | --- | --- | --- | --- |
 | `sandbox` | string | `read-only` | Codex filesystem access level: `read-only`, `workspace-write`, or `danger-full-access`. |
 | `skip_git_repo_check` | boolean | `false` | Allows Codex to run outside a Git repository. |
-| `config_overrides` | object | `{}` | Dotted Codex configuration keys merged into the generated, runtime-scoped Codex profile. |
+| `approval_mode` | string | `auto_review` | Approval handling: `deny_all` pins the native approval policy to `never`; `auto_review` keeps the Codex default. |
+| `personality` | string | none | Codex response personality: `none`, `friendly`, or `pragmatic`. |
+| `reasoning_effort` | string | none | Codex reasoning effort (`model_reasoning_effort`): `none` through `xhigh`. |
+| `service_tier` | string | none | Codex service tier. |
+| `output_schema` | object | none | JSON Schema constraining the final assistant message; staged and passed with `--output-schema`. |
+| `config_overrides` | object | `{}` | Dotted Codex configuration keys merged into the generated, runtime-scoped Codex profile; they take precedence over the named settings above. |
 
 ## Understand the Runtime Lifecycle
 

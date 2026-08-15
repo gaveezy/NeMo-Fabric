@@ -1,10 +1,10 @@
 {
   "contract_version": "fabric.adapter/v1alpha2",
-  "adapter_id": "nvidia.fabric.claude.cli",
+  "adapter_id": "nvidia.fabric.claude.code.cli",
   "harness": "claude",
   "adapter_kind": "python",
   "runner": {
-    "module": "nemo_fabric_adapters.claude_cli.adapter"
+    "module": "nemo_fabric_adapters.claude_code_cli.adapter"
   },
   "requirements": {
     "binaries": ["claude"]
@@ -49,9 +49,56 @@
           "auto"
         ],
         "description": "Claude permission handling mode."
+      },
+      "max_budget_usd": {
+        "type": "number",
+        "exclusiveMinimum": 0,
+        "description": "Maximum amount in US dollars that Claude may spend during one invocation."
+      },
+      "setting_sources": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": ["user", "project", "local"]
+        },
+        "default": [],
+        "description": "Claude settings scopes to load."
       }
     },
     "required": [],
+    "additionalProperties": false
+  },
+  "tool_definition_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "kind": {
+        "const": "mcp_stdio",
+        "description": "Named tools are exposed to Claude Code as stdio MCP servers."
+      },
+      "ref": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Executable command that serves the tool over stdio MCP."
+      },
+      "settings": {
+        "type": "object",
+        "properties": {
+          "args": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Command arguments for the MCP server process."
+          },
+          "env": {
+            "type": "object",
+            "additionalProperties": {"type": "string"},
+            "description": "Environment values provided to the MCP server process."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "required": ["kind", "ref"],
     "additionalProperties": false
   },
   "config": {
@@ -61,7 +108,10 @@
       "models.base_url",
       "instructions.system",
       "runtime.max_turns",
-      "tools.blocked"
+      "tools.blocked",
+      "tools.definitions",
+      "mcp",
+      "skills"
     ]
   },
   "telemetry": {

@@ -30,9 +30,9 @@ ADAPTER_EXTRAS = {
     },
     # The CLI adapters drive external executables; their harness extras are
     # deliberately empty so the root delegation pattern stays uniform.
-    "claude-cli": {
-        "path": "adapters/claude-cli",
-        "root": f"nemo-fabric-adapters-claude-cli[harness] == {PACKAGE_VERSION}",
+    "claude-code-cli": {
+        "path": "adapters/claude-code-cli",
+        "root": f"nemo-fabric-adapters-claude-code-cli[harness] == {PACKAGE_VERSION}",
         "harness": [],
     },
     "codex": {
@@ -81,7 +81,7 @@ ADAPTER_EXTRAS = {
             ],
         ),
         (
-            "adapters/claude-cli",
+            "adapters/claude-code-cli",
             [
                 f"nemo-fabric-adapter-contract == {PACKAGE_VERSION}",
                 f"nemo-fabric-adapters-common == {PACKAGE_VERSION}",
@@ -139,7 +139,7 @@ def test_adapter_test_dependency_group_matches_leaf_harnesses():
     manifest = load_pyproject("")
     expected = [
         "nemo-fabric-adapters-claude[harness]",
-        "nemo-fabric-adapters-claude-cli[harness]",
+        "nemo-fabric-adapters-claude-code-cli[harness]",
         "nemo-fabric-adapters-codex[harness]",
         "nemo-fabric-adapters-codex-cli[harness]",
         "nemo-fabric-adapters-deepagents[harness]",

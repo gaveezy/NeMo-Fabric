@@ -223,7 +223,14 @@ def test_profile_config_routes_codex_through_relay_gateway(codex_payload, tmp_pa
 
     document = adapter.profile_config(config, context, relay)
 
-    assert document["openai_base_url"] == "http://127.0.0.1:43210"
+    assert document["model_provider"] == "nemo-relay-openai"
+    assert document["model_providers"]["nemo-relay-openai"] == {
+        "name": "NeMo Relay OpenAI",
+        "base_url": "http://127.0.0.1:43210",
+        "wire_api": "responses",
+        "requires_openai_auth": True,
+        "supports_websockets": False,
+    }
     assert document["features"] == {
         "hooks": True,
         "multi_agent_v2": {"enabled": False},
@@ -254,6 +261,7 @@ def test_profile_config_routes_custom_provider_through_relay(
     assert provider["base_url"] == "http://127.0.0.1:43210"
     assert provider["env_key"] == "CUSTOM_KEY"
     assert provider["wire_api"] == "responses"
+    assert provider["supports_websockets"] is False
 
 
 def test_prepare_codex_relay_configures_gateway(codex_payload, monkeypatch, tmp_path):
@@ -555,3 +563,189 @@ def test_plan_resolves_codex_cli_descriptor(tmp_path):
 
     assert plan.adapter.adapter_id == "nvidia.fabric.codex.cli"
     assert plan.adapter.harness == "codex"
+
+
+def make_skill(tmp_path: Path, name: str) -> Path:
+    skill = tmp_path / "skills" / name
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("# skill\n", encoding="utf-8")
+    return skill
+
+
+def test_profile_config_maps_instructions_and_mcp(codex_payload):
+    codex_payload["config"]["instructions"] = {
+        "system": {"content": "Review carefully.", "mode": "replace"}
+    }
+    codex_payload["config"]["mcp"] = {
+        "servers": {
+            "files": {
+                "transport": "stdio",
+                "url": "mcp-files",
+                "args": ["--root", "."],
+                "env": {"FILES_TOKEN": "token"},
+            },
+            "search": {
+                "transport": "streamable-http",
+                "url": "https://mcp.example.test/search",
+            },
+        }
+    }
+    config, context, _ = runtime_input(codex_payload)
+
+    document = adapter.profile_config(config, context, None)
+
+    assert document["instructions"] == "Review carefully."
+    assert document["mcp_servers"]["files"] == {
+        "command": "mcp-files",
+        "args": ["--root", "."],
+        "env": {"FILES_TOKEN": "token"},
+    }
+    assert document["mcp_servers"]["search"] == {
+        "url": "https://mcp.example.test/search"
+    }
+
+
+def test_mcp_authentication_is_rejected(codex_payload):
+    codex_payload["config"]["mcp"] = {
+        "servers": {
+            "secure": {
+                "transport": "http",
+                "url": "https://mcp.example.test",
+                "authentication": {"type": "oauth2"},
+            }
+        }
+    }
+
+    error = runtime_start_error(codex_payload)
+
+    assert error.code == "codex_cli_invalid_configuration"
+
+
+def test_invalid_skill_path_is_rejected(codex_payload):
+    codex_payload["config"]["skills"] = {"paths": ["missing-skill"]}
+
+    error = runtime_start_error(codex_payload)
+
+    assert error.code == "codex_cli_invalid_configuration"
+
+
+async def test_skills_are_linked_into_workspace_and_cleaned_up(
+    codex_payload, monkeypatch, tmp_path
+):
+    skill = make_skill(tmp_path, "review")
+    codex_payload["config"]["skills"] = {"paths": ["skills/review"]}
+    log_path = tmp_path / "codex-argv.jsonl"
+    mock_codex = tmp_path / "mock-codex"
+    write_mock_codex(mock_codex, log_path=log_path)
+    monkeypatch.setenv("FABRIC_TEST_CODEX_BIN", str(mock_codex))
+    workspace = Path(codex_payload["runtime_context"]["environment"]["workspace"])
+
+    runtime = adapter.CodexCliRuntime()
+    await runtime.start(lifecycle_start_payload(codex_payload))
+    link = workspace / ".agents" / "skills" / "review"
+    assert link.is_symlink()
+    assert link.resolve() == skill.resolve()
+    try:
+        output = await runtime.invoke(lifecycle_invocation(codex_payload))
+    finally:
+        await runtime.stop()
+
+    assert output["completed"] is True
+    assert not link.exists()
+    assert not (workspace / ".agents").exists()
+
+
+def test_skill_link_collision_is_rejected(codex_payload, tmp_path):
+    make_skill(tmp_path, "review")
+    codex_payload["config"]["skills"] = {"paths": ["skills/review"]}
+    workspace = Path(codex_payload["runtime_context"]["environment"]["workspace"])
+    existing = workspace / ".agents" / "skills" / "review"
+    existing.mkdir(parents=True)
+
+    error = runtime_start_error(codex_payload)
+
+    assert error.code == "codex_cli_invalid_configuration"
+    assert existing.is_dir()
+
+
+def test_profile_config_maps_extra_settings(codex_payload):
+    codex_payload["config"]["harness"]["settings"].update(
+        {
+            "approval_mode": "deny_all",
+            "personality": "pragmatic",
+            "reasoning_effort": "xhigh",
+            "service_tier": "priority",
+            "config_overrides": {},
+        }
+    )
+    config, context, _ = runtime_input(codex_payload)
+
+    document = adapter.profile_config(config, context, None)
+
+    assert document["approval_policy"] == "never"
+    assert document["personality"] == "pragmatic"
+    assert document["model_reasoning_effort"] == "xhigh"
+    assert document["service_tier"] == "priority"
+
+
+def test_config_overrides_win_over_named_settings(codex_payload):
+    # Dotted config_overrides are the raw escape hatch and take precedence
+    # over the normalized named settings.
+    codex_payload["config"]["harness"]["settings"]["reasoning_effort"] = "xhigh"
+    config, context, _ = runtime_input(codex_payload)
+
+    document = adapter.profile_config(config, context, None)
+
+    assert document["model_reasoning_effort"] == "high"
+
+
+def test_auto_review_keeps_native_approval_default(codex_payload):
+    codex_payload["config"]["harness"]["settings"]["approval_mode"] = "auto_review"
+    config, context, _ = runtime_input(codex_payload)
+
+    document = adapter.profile_config(config, context, None)
+
+    assert "approval_policy" not in document
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"approval_mode": "ask"},
+        {"personality": "terse"},
+        {"reasoning_effort": "extreme"},
+        {"service_tier": ""},
+        {"output_schema": []},
+    ],
+)
+def test_invalid_extra_settings_fail_start(codex_payload, settings):
+    codex_payload["config"]["harness"]["settings"].update(settings)
+
+    error = runtime_start_error(codex_payload)
+
+    assert error.code == "codex_cli_invalid_configuration"
+
+
+async def test_output_schema_is_staged_and_cleaned_up(
+    codex_payload, monkeypatch, tmp_path
+):
+    schema = {"type": "object", "properties": {"summary": {"type": "string"}}}
+    codex_payload["config"]["harness"]["settings"]["output_schema"] = schema
+    log_path = tmp_path / "codex-argv.jsonl"
+    mock_codex = tmp_path / "mock-codex"
+    write_mock_codex(mock_codex, log_path=log_path)
+    monkeypatch.setenv("FABRIC_TEST_CODEX_BIN", str(mock_codex))
+
+    runtime = adapter.CodexCliRuntime()
+    await runtime.start(lifecycle_start_payload(codex_payload))
+    schema_path = runtime._output_schema_path
+    assert json.loads(schema_path.read_text(encoding="utf-8")) == schema
+    try:
+        output = await runtime.invoke(lifecycle_invocation(codex_payload))
+    finally:
+        await runtime.stop()
+
+    assert output["completed"] is True
+    command = argv_log(log_path)[0]
+    assert command[command.index("--output-schema") + 1] == str(schema_path)
+    assert not schema_path.parent.exists()

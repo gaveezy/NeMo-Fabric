@@ -8,9 +8,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
+import shutil
 import subprocess
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +40,11 @@ PERMISSION_MODES = {
     "dontAsk",
     "auto",
 }
+SETTING_SOURCES = {"user", "project", "local"}
+# The only caller-defined tools Claude Code can execute natively are MCP
+# servers, so named tool definitions are bounded to stdio MCP commands.
+TOOL_DEFINITION_KIND = "mcp_stdio"
+TOOL_DEFINITION_SETTING_NAMES = {"args", "env"}
 INHERITED_ENV_NAMES = {
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
@@ -80,7 +88,15 @@ INHERITED_ENV_NAMES = {
 
 
 @dataclass(frozen=True)
-class ClaudeCliRelaySettings:
+class ClaudeCodeCliMcpSettings:
+    """Staged MCP configuration and its process-only environment values."""
+
+    config_path: Path
+    environment: dict[str, str]
+
+
+@dataclass(frozen=True)
+class ClaudeCodeCliRelaySettings:
     """Relay gateway and staged Claude settings owned by one adapter run."""
 
     gateway: relay_gateway.RelayGatewayLaunch
@@ -88,7 +104,7 @@ class ClaudeCliRelaySettings:
     settings_path: Path
 
 
-class ClaudeCliAdapterError(Exception):
+class ClaudeCodeCliAdapterError(Exception):
     """Expected adapter error with a stable public code."""
 
     def __init__(
@@ -104,15 +120,15 @@ class ClaudeCliAdapterError(Exception):
         self.metadata = metadata or {}
 
 
-class AdapterInputError(ClaudeCliAdapterError):
+class AdapterInputError(ClaudeCodeCliAdapterError):
     """Invalid Fabric invocation input."""
 
 
-class AdapterConfigError(ClaudeCliAdapterError):
-    """Invalid Claude CLI adapter configuration."""
+class AdapterConfigError(ClaudeCodeCliAdapterError):
+    """Invalid Claude Code CLI adapter configuration."""
 
 
-class AdapterRelayError(ClaudeCliAdapterError):
+class AdapterRelayError(ClaudeCodeCliAdapterError):
     """NeMo Relay setup or lifecycle failure."""
 
 
@@ -124,7 +140,7 @@ def request_prompt(payload: dict[str, Any]) -> str:
     value = (payload.get("request") or {}).get("input")
     if not isinstance(value, str):
         raise AdapterInputError(
-            "claude_cli_invalid_request", "Claude Code input must be text"
+            "claude_code_cli_invalid_request", "Claude Code input must be text"
         )
     return value
 
@@ -177,19 +193,19 @@ def _model_environment(
     )
     if model.provider != "anthropic" and api_key_env is None:
         raise AdapterConfigError(
-            "claude_cli_invalid_configuration",
+            "claude_code_cli_invalid_configuration",
             "selected model api_key_env is required for a custom "
             "Anthropic Messages-compatible provider",
         )
     if api_key_env is not None and not api_key:
         raise AdapterConfigError(
-            "claude_cli_invalid_configuration",
+            "claude_code_cli_invalid_configuration",
             f"{api_key_env} is required for the selected model provider",
         )
     base_url = _anthropic_base_url(model)
     if model.provider != "anthropic" and not base_url:
         raise AdapterConfigError(
-            "claude_cli_invalid_configuration",
+            "claude_code_cli_invalid_configuration",
             "selected model base_url is required for a custom "
             "Anthropic Messages-compatible provider",
         )
@@ -230,7 +246,7 @@ def child_environment(
     if conflicts:
         fields = ", ".join(f"environment.env.{name}" for name in conflicts)
         raise AdapterConfigError(
-            "claude_cli_invalid_configuration",
+            "claude_code_cli_invalid_configuration",
             f"{fields} conflicts with the selected model configuration; "
             "configure model credentials and endpoints through models.<role>, "
             "or remove the duplicate environment.env values",
@@ -242,15 +258,302 @@ def child_environment(
     return values
 
 
+def _artifact_root(context: RuntimeContext, base_dir: str) -> Path:
+    root = context.artifacts.root
+    if root:
+        return Path(str(root))
+    return Path(base_dir) / "artifacts" / "claude-code-cli"
+
+
+def _native_mcp_servers(config: AgentConfig) -> dict[str, dict[str, Any]]:
+    servers = config.mcp.servers if config.mcp else {}
+    result: dict[str, dict[str, Any]] = {}
+    for name, server in sorted(servers.items()):
+        url = os.path.expandvars(server.url).strip()
+        if not url:
+            raise AdapterConfigError(
+                "claude_code_cli_invalid_configuration",
+                f"MCP server {name} URL is required",
+            )
+        transport = server.transport.strip().lower().replace("_", "-")
+        if transport == "stdio":
+            result[name] = {"type": "stdio", "command": url, "args": server.args}
+            if env := server.env:
+                result[name]["env"] = dict(env)
+        elif transport in {"http", "streamable-http"}:
+            result[name] = {"type": "http", "url": url}
+        elif transport == "sse":
+            result[name] = {"type": "sse", "url": url}
+        else:
+            raise AdapterConfigError(
+                "claude_code_cli_invalid_configuration",
+                f"unsupported MCP transport: {server.transport}",
+            )
+        if headers := server.custom_headers:
+            try:
+                common_utils.validate_http_headers(name, headers)
+            except ValueError as error:
+                raise AdapterConfigError(
+                    "claude_code_cli_invalid_configuration", str(error)
+                ) from error
+            result[name]["headers"] = dict(headers)
+        if server.authentication is not None:
+            raise AdapterConfigError(
+                "claude_code_cli_invalid_configuration",
+                f"MCP server {name!r} authentication is not supported by the "
+                "Claude Code CLI adapter",
+            )
+    return result
+
+
+def _tool_definition_servers(config: AgentConfig) -> dict[str, dict[str, Any]]:
+    definitions = config.tools.definitions if config.tools else {}
+    result: dict[str, dict[str, Any]] = {}
+    for name, definition in sorted(definitions.items()):
+        if definition.kind != TOOL_DEFINITION_KIND:
+            raise AdapterConfigError(
+                "claude_code_cli_invalid_configuration",
+                f"tool definition {name!r} kind must be {TOOL_DEFINITION_KIND!r}",
+            )
+        unsupported = sorted(set(definition.settings) - TOOL_DEFINITION_SETTING_NAMES)
+        if unsupported:
+            raise AdapterConfigError(
+                "claude_code_cli_invalid_configuration",
+                f"tool definition {name!r} settings {unsupported} are not supported",
+            )
+        args = definition.settings.get("args") or []
+        if not isinstance(args, list) or any(
+            not isinstance(item, str) for item in args
+        ):
+            raise AdapterConfigError(
+                "claude_code_cli_invalid_configuration",
+                f"tool definition {name!r} args must be a list of strings",
+            )
+        env = definition.settings.get("env")
+        if env is not None and (
+            not isinstance(env, dict)
+            or any(
+                not isinstance(key, str) or not isinstance(value, str)
+                for key, value in env.items()
+            )
+        ):
+            raise AdapterConfigError(
+                "claude_code_cli_invalid_configuration",
+                f"tool definition {name!r} env must map strings to strings",
+            )
+        server: dict[str, Any] = {
+            "type": "stdio",
+            "command": definition.ref,
+            "args": list(args),
+        }
+        if env:
+            server["env"] = dict(env)
+        result[name] = server
+    return result
+
+
+def _combined_mcp_servers(config: AgentConfig) -> dict[str, dict[str, Any]]:
+    """Merge configured MCP servers with tool definitions projected onto MCP."""
+
+    servers = _native_mcp_servers(config)
+    for name, server in _tool_definition_servers(config).items():
+        if name in servers:
+            raise AdapterConfigError(
+                "claude_code_cli_invalid_configuration",
+                f"tool definition {name!r} collides with an MCP server name",
+            )
+        servers[name] = server
+    return servers
+
+
+def _stage_mcp_config(
+    config: AgentConfig, context: RuntimeContext, base_dir: str
+) -> ClaudeCodeCliMcpSettings | None:
+    # A dictionary passed on the command line would expose MCP credentials to
+    # process inspection, so stage a file and pass only its path in argv. Each
+    # configured env credential is replaced by a generated ${VAR} reference and
+    # provided through the deliberately scoped child environment, keeping the
+    # staged file free of secret values. Claude Code expands the references.
+    servers = _combined_mcp_servers(config)
+    if not servers:
+        return None
+    fabric_runtime_id = context.runtime_id
+    environment: dict[str, str] = {}
+
+    def project_environment_value(server_name: str, value_name: str, value: str) -> str:
+        projection_key = (
+            sha256(f"{fabric_runtime_id}\0{server_name}\0{value_name}".encode())
+            .hexdigest()
+            .upper()
+        )
+        projected_name = f"NEMO_FABRIC_CLAUDE_CODE_CLI_MCP_{projection_key}"
+        environment[projected_name] = value
+        return f"${{{projected_name}}}"
+
+    for server_name, server in servers.items():
+        raw_environment = server.get("env")
+        if raw_environment is None:
+            continue
+        projected_environment: dict[str, str] = {}
+        for variable_name, value in sorted(raw_environment.items()):
+            if not isinstance(variable_name, str) or not variable_name:
+                raise AdapterConfigError(
+                    "claude_code_cli_invalid_configuration",
+                    f"MCP server {server_name} env names must be non-empty strings",
+                )
+            if not isinstance(value, str):
+                raise AdapterConfigError(
+                    "claude_code_cli_invalid_configuration",
+                    f"MCP server {server_name} env values must be strings",
+                )
+            projected_environment[variable_name] = project_environment_value(
+                server_name, variable_name, value
+            )
+        server["env"] = projected_environment
+
+    config_root = (
+        _artifact_root(context, base_dir)
+        / ".fabric"
+        / "claude-code-cli"
+        / "mcp"
+        / sha256(fabric_runtime_id.encode()).hexdigest()
+    )
+    if config_root.exists():
+        shutil.rmtree(config_root)
+    config_root.mkdir(parents=True, mode=0o700)
+    config_root.chmod(0o700)
+    config_path = config_root / "mcp.json"
+    try:
+        descriptor = os.open(config_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump({"mcpServers": servers}, stream, indent=2, sort_keys=True)
+            stream.write("\n")
+    except BaseException:
+        shutil.rmtree(config_root, ignore_errors=True)
+        raise
+    return ClaudeCodeCliMcpSettings(config_path=config_path, environment=environment)
+
+
+def _cleanup_mcp_config(config_path: Path | None) -> None:
+    if config_path is None:
+        return
+    try:
+        shutil.rmtree(config_path.parent)
+    except OSError:
+        LOGGER.exception("Claude Code CLI MCP runtime configuration could not be removed")
+
+
+def _native_skill_paths(config: AgentConfig, base_dir: str) -> list[Path]:
+    values = config.skills.paths if config.skills else []
+
+    paths: list[Path] = []
+    names: set[str] = set()
+    config_root = Path(base_dir)
+    for value in values:
+        skill_path = Path(value)
+        if not skill_path.is_absolute():
+            skill_path = config_root / skill_path
+        skill_path = skill_path.resolve()
+        if not skill_path.is_dir() or not (skill_path / "SKILL.md").is_file():
+            raise AdapterConfigError(
+                "claude_code_cli_invalid_configuration",
+                "NeMo Fabric skill path must be a directory containing SKILL.md: "
+                f"{skill_path}",
+            )
+        name = skill_path.name
+        if not name or name in names:
+            raise AdapterConfigError(
+                "claude_code_cli_invalid_configuration",
+                f"NeMo Fabric skill names must be unique: {name}",
+            )
+        names.add(name)
+        paths.append(skill_path)
+    return paths
+
+
+def _stage_skill_plugin(
+    config: AgentConfig, context: RuntimeContext, base_dir: str
+) -> Path | None:
+    skill_paths = _native_skill_paths(config, base_dir)
+    if not skill_paths:
+        return None
+    plugin_key = sha256(context.runtime_id.encode()).hexdigest()
+    plugin_root = (
+        _artifact_root(context, base_dir)
+        / ".fabric"
+        / "claude-code-cli"
+        / "plugins"
+        / plugin_key
+    )
+    if plugin_root.exists():
+        shutil.rmtree(plugin_root)
+    (plugin_root / ".claude-plugin").mkdir(parents=True)
+    (plugin_root / "skills").mkdir()
+    (plugin_root / ".claude-plugin" / "plugin.json").write_text(
+        json.dumps(
+            {
+                "name": "nemo-fabric-skills",
+                "description": "Skills provided by NeMo Fabric",
+                "version": "1.0.0",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    for skill_path in skill_paths:
+        shutil.copytree(skill_path, plugin_root / "skills" / skill_path.name)
+    return plugin_root
+
+
+def _cleanup_skill_plugin(plugin_root: Path | None) -> None:
+    if plugin_root is None:
+        return
+    try:
+        shutil.rmtree(plugin_root)
+    except OSError:
+        LOGGER.exception("Claude Code CLI skill plugin could not be removed")
+
+
 def permission_mode(config: AgentConfig) -> str | None:
     value = _settings(config).get("permission_mode")
     if value is None:
         return None
     if value not in PERMISSION_MODES:
         raise AdapterConfigError(
-            "claude_cli_invalid_configuration", "permission_mode is invalid"
+            "claude_code_cli_invalid_configuration", "permission_mode is invalid"
         )
     return value
+
+
+def max_budget_usd(config: AgentConfig) -> float | None:
+    value = _settings(config).get("max_budget_usd")
+    if value is None:
+        return None
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value <= 0
+    ):
+        raise AdapterConfigError(
+            "claude_code_cli_invalid_configuration", "max_budget_usd must be positive"
+        )
+    return float(value)
+
+
+def setting_sources(config: AgentConfig) -> list[str] | None:
+    value = _settings(config).get("setting_sources")
+    if value is None:
+        return None
+    if not isinstance(value, list) or any(
+        source not in SETTING_SOURCES for source in value
+    ):
+        raise AdapterConfigError(
+            "claude_code_cli_invalid_configuration", "setting_sources is invalid"
+        )
+    return list(value)
 
 
 def timeout_seconds() -> float:
@@ -273,6 +576,8 @@ def build_command(
     *,
     session_id: str | None = None,
     settings_path: Path | None = None,
+    mcp_config_path: Path | None = None,
+    skill_plugin_root: Path | None = None,
 ) -> list[str]:
     command = [
         resolve_claude_command(base_dir),
@@ -294,8 +599,22 @@ def build_command(
     mode = permission_mode(config)
     if mode is not None:
         command.extend(["--permission-mode", mode])
+    budget = max_budget_usd(config)
+    if budget is not None:
+        command.extend(["--max-budget-usd", str(budget)])
+    sources = setting_sources(config)
+    if sources is not None:
+        command.append(f"--setting-sources={','.join(sources)}")
     if settings_path is not None:
         command.extend(["--settings", str(settings_path)])
+    if mcp_config_path is not None:
+        command.extend(["--mcp-config", str(mcp_config_path)])
+        command.append("--strict-mcp-config")
+    if skill_plugin_root is not None:
+        command.extend(["--plugin-dir", str(skill_plugin_root)])
+        # Headless runs cannot approve tools interactively; pre-approve the
+        # Skill tool so staged skills stay invocable.
+        command.extend(["--allowedTools", "Skill"])
     if session_id is not None:
         command.extend(["--resume", session_id])
     return command
@@ -319,7 +638,7 @@ def prepare_claude_relay(
     config: AgentConfig,
     context: RuntimeContext,
     base_dir: str,
-) -> ClaudeCliRelaySettings | None:
+) -> ClaudeCodeCliRelaySettings | None:
     """Generate Relay gateway configuration and the staged Claude hook settings."""
 
     if context.telemetry is None or not context.telemetry.relay_enabled:
@@ -331,7 +650,7 @@ def prepare_claude_relay(
         )
     except FileNotFoundError as error:
         raise AdapterRelayError(
-            "claude_cli_relay_unavailable",
+            "claude_code_cli_relay_unavailable",
             "NeMo Relay CLI executable was not found",
         ) from error
 
@@ -352,12 +671,12 @@ def prepare_claude_relay(
         )
     except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
         raise AdapterRelayError(
-            "claude_cli_relay_configuration_failed",
+            "claude_code_cli_relay_configuration_failed",
             "NeMo Relay runtime configuration is unavailable",
         ) from error
     if config_path is None or plugin_config_path is None:
         raise AdapterRelayError(
-            "claude_cli_relay_configuration_failed",
+            "claude_code_cli_relay_configuration_failed",
             "NeMo Relay runtime configuration is unavailable",
         )
 
@@ -368,10 +687,10 @@ def prepare_claude_relay(
         _stage_relay_settings(settings_path, executable)
     except OSError as error:
         raise AdapterRelayError(
-            "claude_cli_relay_configuration_failed",
+            "claude_code_cli_relay_configuration_failed",
             "Claude Relay hook configuration could not be generated",
         ) from error
-    return ClaudeCliRelaySettings(
+    return ClaudeCodeCliRelaySettings(
         gateway=relay_gateway.RelayGatewayLaunch(
             executable=executable,
             config_path=config_path,
@@ -394,6 +713,10 @@ def validate_runtime_payload(
     resolve_cwd(context, base_dir)
     selected_model(config)
     permission_mode(config)
+    max_budget_usd(config)
+    setting_sources(config)
+    _combined_mcp_servers(config)
+    _native_skill_paths(config, base_dir)
     child_environment(config, context)
     build_command(config, base_dir)
     return fabric_runtime_id
@@ -433,7 +756,7 @@ def _failure(code: str, message: str, **metadata: Any) -> dict[str, Any]:
     return {
         "harness": "claude",
         "adapter": "cli",
-        "mode": "claude_cli_runtime",
+        "mode": "claude_code_cli_runtime",
         "response": None,
         "completed": False,
         "failed": True,
@@ -442,7 +765,7 @@ def _failure(code: str, message: str, **metadata: Any) -> dict[str, Any]:
     }
 
 
-def adapter_failure(error: ClaudeCliAdapterError) -> dict[str, Any]:
+def adapter_failure(error: ClaudeCodeCliAdapterError) -> dict[str, Any]:
     return _failure(error.code, error.message, **error.metadata)
 
 
@@ -453,7 +776,7 @@ def normalize_result(
     error = None
     if failed:
         error = {
-            "code": "claude_cli_result_failed",
+            "code": "claude_code_cli_result_failed",
             "message": "Claude Code returned an error result",
             "retryable": False,
             "metadata": {"subtype": result.get("subtype")},
@@ -461,7 +784,7 @@ def normalize_result(
     return {
         "harness": "claude",
         "adapter": "cli",
-        "mode": "claude_cli_runtime",
+        "mode": "claude_code_cli_runtime",
         "response": result.get("result"),
         "session_id": result.get("session_id"),
         "usage": result.get("usage") or {},
@@ -479,13 +802,13 @@ def normalize_result(
 
 def _relay_output(
     output: dict[str, Any],
-    relay: ClaudeCliRelaySettings,
+    relay: ClaudeCodeCliRelaySettings,
     *,
     artifacts: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     output["relay_runtime"] = {
         "enabled": True,
-        "emitter": "claude-cli/nemo-relay",
+        "emitter": "claude-code-cli/nemo-relay",
         "config_path": os.environ.get("FABRIC_RELAY_CONFIG_PATH"),
         "gateway_config_path": str(relay.gateway.config_path),
         "gateway_url": relay.gateway.url,
@@ -502,7 +825,7 @@ def _relay_output(
 def _start_relay_gateway(
     context: RuntimeContext,
     base_dir: str,
-    relay: ClaudeCliRelaySettings | None,
+    relay: ClaudeCodeCliRelaySettings | None,
 ) -> subprocess.Popen[Any] | None:
     if relay is None:
         return None
@@ -512,14 +835,14 @@ def _start_relay_gateway(
         )
     except relay_gateway.RelayGatewayError as error:
         raise AdapterRelayError(
-            "claude_cli_relay_start_failed",
+            "claude_code_cli_relay_start_failed",
             "NeMo Relay gateway failed to start",
             metadata={"gateway_log_path": str(relay.gateway.log_path)},
         ) from error
 
 
 def _cleanup_relay(
-    relay: ClaudeCliRelaySettings | None,
+    relay: ClaudeCodeCliRelaySettings | None,
     process: subprocess.Popen[Any] | None,
 ) -> AdapterRelayError | None:
     cleanup_error: AdapterRelayError | None = None
@@ -528,7 +851,7 @@ def _cleanup_relay(
             relay_gateway.stop_relay_gateway(process)
         except relay_gateway.RelayGatewayError:
             cleanup_error = AdapterRelayError(
-                "claude_cli_relay_stop_failed",
+                "claude_code_cli_relay_stop_failed",
                 "NeMo Relay gateway failed to stop",
                 metadata={
                     "gateway_log_path": str(relay.gateway.log_path)
@@ -542,13 +865,13 @@ def _cleanup_relay(
         except OSError:
             if cleanup_error is None:
                 cleanup_error = AdapterRelayError(
-                    "claude_cli_relay_cleanup_failed",
+                    "claude_code_cli_relay_cleanup_failed",
                     "Claude Relay hook configuration could not be removed",
                 )
     return cleanup_error
 
 
-def _as_lifecycle_error(error: ClaudeCliAdapterError) -> lifecycle.LifecycleError:
+def _as_lifecycle_error(error: ClaudeCodeCliAdapterError) -> lifecycle.LifecycleError:
     return lifecycle.LifecycleError(
         error.code,
         error.message,
@@ -561,12 +884,12 @@ def _runtime_context(payload: dict[str, Any]) -> RuntimeContext:
         return RuntimeContext.from_mapping(payload.get("runtime_context"))
     except ContractValidationError as error:
         raise lifecycle.LifecycleError(
-            "claude_cli_invalid_runtime_context",
-            "Claude CLI runtime context is invalid",
+            "claude_code_cli_invalid_runtime_context",
+            "Claude Code CLI runtime context is invalid",
         ) from error
 
 
-class ClaudeCliRuntime:
+class ClaudeCodeCliRuntime:
     """One Claude Code CLI conversation owned by a Fabric runtime."""
 
     def __init__(self) -> None:
@@ -575,16 +898,18 @@ class ClaudeCliRuntime:
         self._base_dir: str | None = None
         self._fabric_runtime_id: str | None = None
         self._claude_session_id: str | None = None
-        self._relay: ClaudeCliRelaySettings | None = None
+        self._relay: ClaudeCodeCliRelaySettings | None = None
         self._gateway_process: subprocess.Popen[Any] | None = None
+        self._mcp: ClaudeCodeCliMcpSettings | None = None
+        self._skill_plugin_root: Path | None = None
         self._started = False
         self._unusable = False
 
     async def start(self, payload: dict[str, Any]) -> None:
         if self._started:
             raise lifecycle.LifecycleError(
-                "claude_cli_runtime_already_started",
-                "Claude CLI runtime is already started",
+                "claude_code_cli_runtime_already_started",
+                "Claude Code CLI runtime is already started",
             )
         try:
             agent_config = payload["config"]
@@ -598,9 +923,21 @@ class ClaudeCliRuntime:
             )
             self._relay = relay
             self._gateway_process = _start_relay_gateway(context, base_dir, relay)
-        except ClaudeCliAdapterError as error:
+            self._mcp = await asyncio.to_thread(
+                _stage_mcp_config, agent_config, context, base_dir
+            )
+            self._skill_plugin_root = await asyncio.to_thread(
+                _stage_skill_plugin, agent_config, context, base_dir
+            )
+        except ClaudeCodeCliAdapterError as error:
             self._cleanup_failed_start()
             raise _as_lifecycle_error(error) from error
+        except OSError as error:
+            self._cleanup_failed_start()
+            raise lifecycle.LifecycleError(
+                "claude_code_cli_configuration_failed",
+                "Claude Code CLI runtime configuration could not be staged",
+            ) from error
         except BaseException:
             self._cleanup_failed_start()
             raise
@@ -623,19 +960,19 @@ class ClaudeCliRuntime:
             or self._fabric_runtime_id is None
         ):
             raise lifecycle.LifecycleError(
-                "claude_cli_runtime_not_started",
-                "Claude CLI runtime is not started",
+                "claude_code_cli_runtime_not_started",
+                "Claude Code CLI runtime is not started",
             )
         runtime_context = _runtime_context(invocation)
         if runtime_context.runtime_id != self._fabric_runtime_id:
             raise lifecycle.LifecycleError(
-                "claude_cli_runtime_mismatch",
-                "Claude CLI invocation does not match the connected runtime",
+                "claude_code_cli_runtime_mismatch",
+                "Claude Code CLI invocation does not match the connected runtime",
             )
         if self._unusable:
             return _failure(
-                "claude_cli_runtime_unavailable",
-                "Claude CLI runtime cannot accept another invocation after a runtime failure",
+                "claude_code_cli_runtime_unavailable",
+                "Claude Code CLI runtime cannot accept another invocation after a runtime failure",
             )
 
         try:
@@ -661,7 +998,7 @@ class ClaudeCliRuntime:
                     return _relay_output(
                         adapter_failure(
                             AdapterRelayError(
-                                "claude_cli_relay_atif_timeout",
+                                "claude_code_cli_relay_atif_timeout",
                                 "NeMo Relay did not finalize an ATIF artifact before the deadline",
                                 metadata={
                                     "timeout_seconds": relay_artifacts.ATIF_FINALIZATION_TIMEOUT_SECONDS,
@@ -674,7 +1011,7 @@ class ClaudeCliRuntime:
         except AdapterRelayError as error:
             self._unusable = True
             output = adapter_failure(error)
-        except ClaudeCliAdapterError as error:
+        except ClaudeCodeCliAdapterError as error:
             output = adapter_failure(error)
 
         if self._relay is not None:
@@ -693,12 +1030,16 @@ class ClaudeCliRuntime:
             base_dir,
             session_id=self._claude_session_id,
             settings_path=self._relay.settings_path if self._relay else None,
+            mcp_config_path=self._mcp.config_path if self._mcp else None,
+            skill_plugin_root=self._skill_plugin_root,
         )
         environment = child_environment(
             config,
             context,
             relay_gateway_url=self._relay.gateway.url if self._relay else None,
         )
+        if self._mcp is not None:
+            environment.update(self._mcp.environment)
         cwd = resolve_cwd(context, base_dir)
         timeout = timeout_seconds()
         try:
@@ -715,13 +1056,13 @@ class ClaudeCliRuntime:
             )
         except subprocess.TimeoutExpired:
             return _failure(
-                "claude_cli_timed_out",
+                "claude_code_cli_timed_out",
                 f"Claude Code CLI timed out after {timeout:g} seconds",
                 returncode=TIMEOUT_RETURNCODE,
             )
         except OSError:
             return _failure(
-                "claude_cli_not_found",
+                "claude_code_cli_not_found",
                 "Claude Code executable could not start",
                 returncode=LAUNCH_FAILURE_RETURNCODE,
             )
@@ -730,12 +1071,12 @@ class ClaudeCliRuntime:
         if result is None:
             if completed.returncode != 0:
                 return _failure(
-                    "claude_cli_process_failed",
+                    "claude_code_cli_process_failed",
                     "Claude Code process failed",
                     exit_code=completed.returncode,
                 )
             return _failure(
-                "claude_cli_missing_result",
+                "claude_code_cli_missing_result",
                 "Claude Code returned no terminal result",
             )
         output = normalize_result(events, result)
@@ -743,7 +1084,7 @@ class ClaudeCliRuntime:
             session_id = output.get("session_id")
             if not isinstance(session_id, str) or not session_id:
                 return _failure(
-                    "claude_cli_missing_session",
+                    "claude_code_cli_missing_session",
                     "Claude Code did not return a session identity",
                 )
             # Each headless run reports the session that must be resumed for the
@@ -762,6 +1103,10 @@ class ClaudeCliRuntime:
         cleanup_error = _cleanup_relay(self._relay, self._gateway_process)
         self._relay = None
         self._gateway_process = None
+        _cleanup_mcp_config(self._mcp.config_path if self._mcp else None)
+        self._mcp = None
+        _cleanup_skill_plugin(self._skill_plugin_root)
+        self._skill_plugin_root = None
         if cleanup_error is not None:
             raise _as_lifecycle_error(cleanup_error)
 
@@ -769,9 +1114,13 @@ class ClaudeCliRuntime:
         cleanup_error = _cleanup_relay(self._relay, self._gateway_process)
         self._relay = None
         self._gateway_process = None
+        _cleanup_mcp_config(self._mcp.config_path if self._mcp else None)
+        self._mcp = None
+        _cleanup_skill_plugin(self._skill_plugin_root)
+        self._skill_plugin_root = None
         if cleanup_error is not None:
             LOGGER.error(
-                "Claude CLI runtime cleanup after start failure also failed: %s",
+                "Claude Code CLI runtime cleanup after start failure also failed: %s",
                 cleanup_error.code,
             )
 
@@ -779,7 +1128,7 @@ class ClaudeCliRuntime:
 def main() -> None:
     """Serve the persistent local-host lifecycle protocol."""
 
-    lifecycle.serve(ClaudeCliRuntime, config_loader=AgentConfig.from_mapping)
+    lifecycle.serve(ClaudeCodeCliRuntime, config_loader=AgentConfig.from_mapping)
 
 
 if __name__ == "__main__":

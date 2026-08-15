@@ -9,8 +9,10 @@ import asyncio
 import json
 import logging
 import os
+import shutil
 import subprocess
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +35,12 @@ TIMEOUT_RETURNCODE = 124
 LAUNCH_FAILURE_RETURNCODE = 127
 SANDBOXES = ("read-only", "workspace-write", "danger-full-access")
 DEFAULT_SANDBOX = "read-only"
+RELAY_OPENAI_PROVIDER = "nemo-relay-openai"
+# `codex exec` is non-interactive, so the SDK's approval modes translate to a
+# native approval policy: deny_all pins `never`; auto_review keeps the default.
+APPROVAL_POLICY_BY_MODE = {"auto_review": None, "deny_all": "never"}
+PERSONALITIES = ("none", "friendly", "pragmatic")
+REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh")
 INHERITED_ENV_NAMES = {
     "APPDATA",
     "CODEX_HOME",
@@ -66,6 +74,14 @@ INHERITED_ENV_NAMES = {
     "https_proxy",
     "no_proxy",
 }
+
+
+@dataclass(frozen=True)
+class CodexCliSkillStaging:
+    """Skill symlinks staged into the workspace discovery root."""
+
+    links: tuple[Path, ...]
+    created_directories: tuple[Path, ...]
 
 
 @dataclass(frozen=True)
@@ -179,6 +195,50 @@ def timeout_seconds() -> float:
     return DEFAULT_TIMEOUT_SECONDS
 
 
+def _optional_choice(
+    config: AgentConfig, name: str, choices: tuple[str, ...]
+) -> str | None:
+    value = _settings(config).get(name)
+    if value is None:
+        return None
+    if value not in choices:
+        raise AdapterConfigError(
+            "codex_cli_invalid_configuration",
+            f"{name} must be one of: {', '.join(choices)}",
+        )
+    return value
+
+
+def _optional_string(config: AgentConfig, name: str) -> str | None:
+    value = _settings(config).get(name)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        raise AdapterConfigError(
+            "codex_cli_invalid_configuration",
+            f"harness.settings.{name} must be a non-empty string",
+        )
+    return value
+
+
+def approval_policy(config: AgentConfig) -> str | None:
+    mode = _optional_choice(
+        config, "approval_mode", tuple(APPROVAL_POLICY_BY_MODE)
+    )
+    return APPROVAL_POLICY_BY_MODE[mode] if mode is not None else None
+
+
+def output_schema(config: AgentConfig) -> dict[str, Any] | None:
+    value = _settings(config).get("output_schema")
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise AdapterConfigError(
+            "codex_cli_invalid_configuration", "output_schema must be a mapping"
+        )
+    return _json_value(value, name="output_schema")
+
+
 def codex_home() -> Path:
     configured = os.environ.get("CODEX_HOME")
     if configured:
@@ -199,6 +259,132 @@ def resolve_codex_command(base_dir: str) -> str:
     if not path.is_absolute():
         path = (Path(base_dir) / path).resolve()
     return str(path)
+
+
+def _native_mcp_servers(config: AgentConfig) -> dict[str, dict[str, Any]]:
+    servers = config.mcp.servers if config.mcp else {}
+    result: dict[str, dict[str, Any]] = {}
+    for name, server in sorted(servers.items()):
+        target = os.path.expandvars(server.url).strip()
+        if not target:
+            raise AdapterConfigError(
+                "codex_cli_invalid_configuration",
+                f"MCP server {name} URL is required",
+            )
+        transport = server.transport.strip().lower().replace("_", "-")
+        if transport == "stdio":
+            result[name] = {"command": target, "args": server.args}
+            if env := server.env:
+                result[name]["env"] = dict(env)
+        elif transport in {"http", "streamable-http"}:
+            result[name] = {"url": target}
+        else:
+            raise AdapterConfigError(
+                "codex_cli_invalid_configuration",
+                f"unsupported Codex MCP transport: {server.transport}",
+            )
+        if headers := server.custom_headers:
+            try:
+                headers = common_utils.expand_http_headers(name, headers)
+            except ValueError as error:
+                raise AdapterConfigError(
+                    "codex_cli_invalid_configuration", str(error)
+                ) from error
+            result[name]["http_headers"] = headers
+        if server.authentication is not None:
+            # The SDK adapter drives MCP OAuth through app-server requests;
+            # `codex exec` has no non-interactive login path.
+            raise AdapterConfigError(
+                "codex_cli_invalid_configuration",
+                f"MCP server {name!r} authentication is not supported by the "
+                "Codex CLI adapter",
+            )
+    return result
+
+
+def _native_skill_paths(config: AgentConfig, base_dir: str) -> list[Path]:
+    values = config.skills.paths if config.skills else []
+
+    paths: list[Path] = []
+    names: set[str] = set()
+    config_root = Path(base_dir)
+    for value in values:
+        skill_path = Path(value)
+        if not skill_path.is_absolute():
+            skill_path = config_root / skill_path
+        skill_path = skill_path.resolve()
+        if not skill_path.is_dir() or not (skill_path / "SKILL.md").is_file():
+            raise AdapterConfigError(
+                "codex_cli_invalid_configuration",
+                "NeMo Fabric skill path must be a directory containing SKILL.md: "
+                f"{skill_path}",
+            )
+        name = skill_path.name
+        if not name or name in names:
+            raise AdapterConfigError(
+                "codex_cli_invalid_configuration",
+                f"NeMo Fabric skill names must be unique: {name}",
+            )
+        names.add(name)
+        paths.append(skill_path)
+    return paths
+
+
+def _stage_skill_links(
+    config: AgentConfig, context: RuntimeContext, base_dir: str
+) -> CodexCliSkillStaging | None:
+    # `codex exec` has no extra-roots request, so surface NeMo Fabric skills
+    # through the documented workspace discovery root. Codex follows symlinked
+    # skill folders, and the links are removed when the runtime stops.
+    skill_paths = _native_skill_paths(config, base_dir)
+    if not skill_paths:
+        return None
+    discovery_root = resolve_cwd(context, base_dir) / ".agents" / "skills"
+    created_directories: list[Path] = []
+    for directory in (discovery_root.parent, discovery_root):
+        if not directory.exists():
+            directory.mkdir()
+            created_directories.append(directory)
+    links: list[Path] = []
+    try:
+        for skill_path in skill_paths:
+            link = discovery_root / skill_path.name
+            if link.exists() or link.is_symlink():
+                raise AdapterConfigError(
+                    "codex_cli_invalid_configuration",
+                    f"workspace skill {link} already exists; rename the NeMo "
+                    "Fabric skill or remove the workspace entry",
+                )
+            link.symlink_to(skill_path, target_is_directory=True)
+            links.append(link)
+    except BaseException:
+        _cleanup_skill_links(
+            CodexCliSkillStaging(
+                links=tuple(links),
+                created_directories=tuple(reversed(created_directories)),
+            )
+        )
+        raise
+    return CodexCliSkillStaging(
+        links=tuple(links),
+        created_directories=tuple(reversed(created_directories)),
+    )
+
+
+def _cleanup_skill_links(staging: CodexCliSkillStaging | None) -> None:
+    if staging is None:
+        return
+    for link in staging.links:
+        try:
+            link.unlink(missing_ok=True)
+        except OSError:
+            LOGGER.exception("Codex CLI staged skill link could not be removed")
+    for directory in staging.created_directories:
+        try:
+            directory.rmdir()
+        except OSError:
+            # The directory gained caller-owned entries; leave it in place.
+            pass
 
 
 def custom_model_provider_config(
@@ -417,6 +603,23 @@ def profile_config(
     result = native_codex_telemetry_config(context)
     _merge_config(result, custom_model_provider_config(config, context))
     _merge_config(result, openai_model_provider_config(config))
+    if config.instructions and config.instructions.system:
+        # The `instructions` config key replaces the request-level system
+        # instructions, matching the SDK adapter's base_instructions mapping.
+        result["instructions"] = config.instructions.system.content
+    mcp_servers = _native_mcp_servers(config)
+    if mcp_servers:
+        result["mcp_servers"] = mcp_servers
+    if (policy := approval_policy(config)) is not None:
+        result["approval_policy"] = policy
+    if (value := _optional_choice(config, "personality", PERSONALITIES)) is not None:
+        result["personality"] = value
+    if (
+        value := _optional_choice(config, "reasoning_effort", REASONING_EFFORTS)
+    ) is not None:
+        result["model_reasoning_effort"] = value
+    if (value := _optional_string(config, "service_tier")) is not None:
+        result["service_tier"] = value
     overrides = _mapping(
         _settings(config).get("config_overrides"),
         name="harness.settings.config_overrides",
@@ -424,10 +627,31 @@ def profile_config(
     _apply_config_overrides(result, overrides)
     if relay is not None:
         provider = _selected_model_config(config).provider
+        # The Relay gateway speaks HTTP only; Codex defaults to websockets for
+        # the native provider, so route through an explicit provider entry
+        # with websockets disabled.
         transport_config = (
-            {"openai_base_url": relay.gateway.url}
+            {
+                "model_provider": RELAY_OPENAI_PROVIDER,
+                "model_providers": {
+                    RELAY_OPENAI_PROVIDER: {
+                        "name": "NeMo Relay OpenAI",
+                        "base_url": relay.gateway.url,
+                        "wire_api": "responses",
+                        "requires_openai_auth": True,
+                        "supports_websockets": False,
+                    }
+                },
+            }
             if provider == "openai"
-            else {"model_providers": {provider: {"base_url": relay.gateway.url}}}
+            else {
+                "model_providers": {
+                    provider: {
+                        "base_url": relay.gateway.url,
+                        "supports_websockets": False,
+                    }
+                }
+            }
         )
         _merge_config(
             result,
@@ -446,6 +670,44 @@ def profile_config(
             },
         )
     return result
+
+
+def _artifact_root(context: RuntimeContext, base_dir: str) -> Path:
+    root = context.artifacts.root
+    if root:
+        return Path(str(root))
+    return Path(base_dir) / "artifacts" / "codex-cli"
+
+
+def write_output_schema(
+    config: AgentConfig, context: RuntimeContext, base_dir: str
+) -> Path | None:
+    """Stage the configured output schema for the ``--output-schema`` flag."""
+
+    document = output_schema(config)
+    if document is None:
+        return None
+    directory = (
+        _artifact_root(context, base_dir)
+        / ".fabric"
+        / "codex-cli"
+        / sha256(context.runtime_id.encode()).hexdigest()
+    )
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / "output-schema.json"
+    path.write_text(
+        json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return path
+
+
+def _cleanup_output_schema(path: Path | None) -> None:
+    if path is None:
+        return
+    try:
+        shutil.rmtree(path.parent)
+    except OSError:
+        LOGGER.exception("Codex CLI staged output schema could not be removed")
 
 
 def write_profile_config(
@@ -478,6 +740,7 @@ def build_command(
     profile_name: str | None,
     relay_enabled: bool,
     thread_id: str | None = None,
+    output_schema_path: Path | None = None,
 ) -> list[str]:
     """Build one ``codex exec`` invocation reading the prompt from stdin."""
 
@@ -491,6 +754,8 @@ def build_command(
             # bypass that interactive trust prompt for this non-interactive run.
             command.append("--dangerously-bypass-hook-trust")
     command.extend(["--model", selected_model(config)])
+    if output_schema_path is not None:
+        command.extend(["--output-schema", str(output_schema_path)])
     if skip_git_repo_check(config):
         command.append("--skip-git-repo-check")
     if thread_id:
@@ -538,6 +803,8 @@ def validate_runtime_payload(
     selected_model(config)
     sandbox(config)
     skip_git_repo_check(config)
+    output_schema(config)
+    _native_skill_paths(config, base_dir)
     child_environment(config, context)
     profile_config(config, context, None)
     return fabric_runtime_id
@@ -695,6 +962,8 @@ class CodexCliRuntime:
         self._thread_id: str | None = None
         self._profile_name: str | None = None
         self._profile_path: Path | None = None
+        self._output_schema_path: Path | None = None
+        self._skill_staging: CodexCliSkillStaging | None = None
         self._relay: CodexCliRelaySettings | None = None
         self._gateway_process: subprocess.Popen[Any] | None = None
         self._started = False
@@ -723,6 +992,12 @@ class CodexCliRuntime:
             )
             if generated is not None:
                 self._profile_name, self._profile_path = generated
+            self._output_schema_path = await asyncio.to_thread(
+                write_output_schema, agent_config, context, base_dir
+            )
+            self._skill_staging = await asyncio.to_thread(
+                _stage_skill_links, agent_config, context, base_dir
+            )
         except CodexCliAdapterError as error:
             await self._cleanup_failed_start()
             raise _as_lifecycle_error(error) from error
@@ -823,6 +1098,7 @@ class CodexCliRuntime:
             profile_name=self._profile_name,
             relay_enabled=self._relay is not None,
             thread_id=self._thread_id,
+            output_schema_path=self._output_schema_path,
         )
         environment = child_environment(
             config,
@@ -919,6 +1195,10 @@ class CodexCliRuntime:
             except OSError as error:
                 profile_error = error
                 LOGGER.exception("Codex CLI generated profile could not be removed")
+        _cleanup_output_schema(self._output_schema_path)
+        self._output_schema_path = None
+        _cleanup_skill_links(self._skill_staging)
+        self._skill_staging = None
 
         cleanup_error = _cleanup_relay(self._relay, self._gateway_process)
         self._relay = None
@@ -940,6 +1220,10 @@ class CodexCliRuntime:
                 profile_path.unlink(missing_ok=True)
             except OSError:
                 LOGGER.exception("Codex CLI generated profile could not be removed")
+        _cleanup_output_schema(self._output_schema_path)
+        self._output_schema_path = None
+        _cleanup_skill_links(self._skill_staging)
+        self._skill_staging = None
         cleanup_error = _cleanup_relay(self._relay, self._gateway_process)
         self._relay = None
         self._gateway_process = None

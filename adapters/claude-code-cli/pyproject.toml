@@ -8,7 +8,7 @@ requires = [
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "nemo-fabric-adapters-claude-cli"
+name = "nemo-fabric-adapters-claude-code-cli"
 version = "0.2.0"
 description = "Claude Code CLI adapter for NeMo Fabric"
 authors = [
@@ -45,10 +45,10 @@ Documentation = "https://docs.nvidia.com/nemo/fabric"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["nemo_fabric_adapters.claude_cli*"]
+include = ["nemo_fabric_adapters.claude_code_cli*"]
 
 [tool.setuptools.data-files]
-"share/nemo-fabric/adapters/claude-cli" = ["fabric-adapter.json"]
+"share/nemo-fabric/adapters/claude-code-cli" = ["fabric-adapter.json"]
 
 [tool.uv.sources]
 nemo-fabric-adapter-contract = { path = "../../adapter-contract", editable = true }

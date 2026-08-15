@@ -2125,8 +2125,8 @@ dependencies = [
 claude = [
     { name = "nemo-fabric-adapters-claude", extra = ["harness"] },
 ]
-claude-cli = [
-    { name = "nemo-fabric-adapters-claude-cli" },
+claude-code-cli = [
+    { name = "nemo-fabric-adapters-claude-code-cli" },
 ]
 codex = [
     { name = "nemo-fabric-adapters-codex", extra = ["harness"] },
@@ -2151,7 +2151,7 @@ relay = [
 [package.dev-dependencies]
 adapter-tests = [
     { name = "nemo-fabric-adapters-claude", extra = ["harness"] },
-    { name = "nemo-fabric-adapters-claude-cli" },
+    { name = "nemo-fabric-adapters-claude-code-cli" },
     { name = "nemo-fabric-adapters-codex", extra = ["harness"] },
     { name = "nemo-fabric-adapters-codex-cli" },
     { name = "nemo-fabric-adapters-deepagents", extra = ["harness"] },
@@ -2160,7 +2160,7 @@ adapter-tests = [
 adapters = [
     { name = "nemo-fabric-adapter-contract" },
     { name = "nemo-fabric-adapters-claude" },
-    { name = "nemo-fabric-adapters-claude-cli" },
+    { name = "nemo-fabric-adapters-claude-code-cli" },
     { name = "nemo-fabric-adapters-codex" },
     { name = "nemo-fabric-adapters-codex-cli" },
     { name = "nemo-fabric-adapters-common" },
@@ -2207,7 +2207,7 @@ test = [
 requires-dist = [
     { name = "harbor", marker = "python_full_version >= '3.12' and extra == 'harbor'", specifier = ">=0.18,<0.19" },
     { name = "nemo-fabric-adapters-claude", extras = ["harness"], marker = "extra == 'claude'", editable = "adapters/claude" },
-    { name = "nemo-fabric-adapters-claude-cli", extras = ["harness"], marker = "extra == 'claude-cli'", editable = "adapters/claude-cli" },
+    { name = "nemo-fabric-adapters-claude-code-cli", extras = ["harness"], marker = "extra == 'claude-code-cli'", editable = "adapters/claude-code-cli" },
     { name = "nemo-fabric-adapters-codex", extras = ["harness"], marker = "extra == 'codex'", editable = "adapters/codex" },
     { name = "nemo-fabric-adapters-codex-cli", extras = ["harness"], marker = "extra == 'codex-cli'", editable = "adapters/codex-cli" },
     { name = "nemo-fabric-adapters-deepagents", extras = ["harness"], marker = "extra == 'deepagents'", editable = "adapters/deepagents" },
@@ -2216,12 +2216,12 @@ requires-dist = [
     { name = "nemo-relay", marker = "extra == 'relay'", specifier = ">=0.6.0,<0.7" },
     { name = "pyyaml", marker = "extra == 'harbor'", specifier = ">=6.0" },
 ]
-provides-extras = ["claude", "claude-cli", "codex", "codex-cli", "deepagents", "harbor", "hermes-agent", "relay"]
+provides-extras = ["claude", "claude-code-cli", "codex", "codex-cli", "deepagents", "harbor", "hermes-agent", "relay"]
 
 [package.metadata.requires-dev]
 adapter-tests = [
     { name = "nemo-fabric-adapters-claude", extras = ["harness"], editable = "adapters/claude" },
-    { name = "nemo-fabric-adapters-claude-cli", extras = ["harness"], editable = "adapters/claude-cli" },
+    { name = "nemo-fabric-adapters-claude-code-cli", extras = ["harness"], editable = "adapters/claude-code-cli" },
     { name = "nemo-fabric-adapters-codex", extras = ["harness"], editable = "adapters/codex" },
     { name = "nemo-fabric-adapters-codex-cli", extras = ["harness"], editable = "adapters/codex-cli" },
     { name = "nemo-fabric-adapters-deepagents", extras = ["harness"], editable = "adapters/deepagents" },
@@ -2230,7 +2230,7 @@ adapter-tests = [
 adapters = [
     { name = "nemo-fabric-adapter-contract", editable = "adapter-contract" },
     { name = "nemo-fabric-adapters-claude", editable = "adapters/claude" },
-    { name = "nemo-fabric-adapters-claude-cli", editable = "adapters/claude-cli" },
+    { name = "nemo-fabric-adapters-claude-code-cli", editable = "adapters/claude-code-cli" },
     { name = "nemo-fabric-adapters-codex", editable = "adapters/codex" },
     { name = "nemo-fabric-adapters-codex-cli", editable = "adapters/codex-cli" },
     { name = "nemo-fabric-adapters-common", editable = "adapters/common" },
@@ -2305,9 +2305,9 @@ requires-dist = [
 provides-extras = ["harness", "full"]
 
 [[package]]
-name = "nemo-fabric-adapters-claude-cli"
+name = "nemo-fabric-adapters-claude-code-cli"
 version = "0.2.0"
-source = { editable = "adapters/claude-cli" }
+source = { editable = "adapters/claude-code-cli" }
 dependencies = [
     { name = "nemo-fabric-adapter-contract" },
     { name = "nemo-fabric-adapters-common" },

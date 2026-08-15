@@ -43,8 +43,8 @@ claude = [
   "nemo-fabric-adapters-claude[harness] == 0.2.0",
 ]
 
-claude-cli = [
-  "nemo-fabric-adapters-claude-cli[harness] == 0.2.0",
+claude-code-cli = [
+  "nemo-fabric-adapters-claude-code-cli[harness] == 0.2.0",
 ]
 
 codex = [
@@ -77,7 +77,7 @@ adapters = [
   "nemo-fabric-adapter-contract",
   "nemo-fabric-adapters-common",
   "nemo-fabric-adapters-claude",
-  "nemo-fabric-adapters-claude-cli",
+  "nemo-fabric-adapters-claude-code-cli",
   "nemo-fabric-adapters-codex",
   "nemo-fabric-adapters-codex-cli",
   # Install the deepagents adapter with its optional [relay] extra so the dev
@@ -88,7 +88,7 @@ adapters = [
 
 adapter-tests = [
   "nemo-fabric-adapters-claude[harness]",
-  "nemo-fabric-adapters-claude-cli[harness]",
+  "nemo-fabric-adapters-claude-code-cli[harness]",
   "nemo-fabric-adapters-codex[harness]",
   "nemo-fabric-adapters-codex-cli[harness]",
   "nemo-fabric-adapters-deepagents[harness]",
@@ -146,7 +146,7 @@ nemo-fabric-runtime = { path = "python", editable = true }
 nemo-fabric-adapter-contract = { path = "adapter-contract", editable = true }
 nemo-fabric-adapters-common = { path = "adapters/common", editable = true }
 nemo-fabric-adapters-claude = { path = "adapters/claude", editable = true }
-nemo-fabric-adapters-claude-cli = { path = "adapters/claude-cli", editable = true }
+nemo-fabric-adapters-claude-code-cli = { path = "adapters/claude-code-cli", editable = true }
 nemo-fabric-adapters-codex = { path = "adapters/codex", editable = true }
 nemo-fabric-adapters-codex-cli = { path = "adapters/codex-cli", editable = true }
 nemo-fabric-adapters-deepagents = { path = "adapters/deepagents", editable = true }

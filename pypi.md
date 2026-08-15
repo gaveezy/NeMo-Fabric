@@ -50,7 +50,7 @@ The following table shows the install target for each supported agent harness:
 | Agent Harness | Runtime, Adapter, and Harness | Adapter and Harness | Adapter Only |
 | --- | --- | --- | --- |
 | [Claude Code](https://pypi.org/project/nemo-fabric-adapters-claude/) | `nemo-fabric[claude]` | `nemo-fabric-adapters-claude[harness]` | `nemo-fabric-adapters-claude` |
-| [Claude Code CLI](https://pypi.org/project/nemo-fabric-adapters-claude-cli/) | `nemo-fabric[claude-cli]` | `nemo-fabric-adapters-claude-cli[harness]` | `nemo-fabric-adapters-claude-cli` |
+| [Claude Code CLI](https://pypi.org/project/nemo-fabric-adapters-claude-code-cli/) | `nemo-fabric[claude-code-cli]` | `nemo-fabric-adapters-claude-code-cli[harness]` | `nemo-fabric-adapters-claude-code-cli` |
 | [Codex](https://pypi.org/project/nemo-fabric-adapters-codex/) | `nemo-fabric[codex]` | `nemo-fabric-adapters-codex[harness]` | `nemo-fabric-adapters-codex` |
 | [Codex CLI](https://pypi.org/project/nemo-fabric-adapters-codex-cli/) | `nemo-fabric[codex-cli]` | `nemo-fabric-adapters-codex-cli[harness]` | `nemo-fabric-adapters-codex-cli` |
 | [Hermes Agent](https://pypi.org/project/nemo-fabric-adapters-hermes/) | `nemo-fabric[hermes-agent]` | `nemo-fabric-adapters-hermes[harness]` | `nemo-fabric-adapters-hermes` |
@@ -62,7 +62,7 @@ environment, choose one of the following `nemo-fabric` harness extras:
 
 ```bash
 pip install "nemo-fabric[claude]"
-pip install "nemo-fabric[claude-cli]"
+pip install "nemo-fabric[claude-code-cli]"
 pip install "nemo-fabric[codex]"
 pip install "nemo-fabric[codex-cli]"
 pip install "nemo-fabric[deepagents]"
@@ -91,7 +91,7 @@ following bare adapter packages:
 
 ```bash
 pip install nemo-fabric-adapters-claude
-pip install nemo-fabric-adapters-claude-cli
+pip install nemo-fabric-adapters-claude-code-cli
 pip install nemo-fabric-adapters-codex
 pip install nemo-fabric-adapters-codex-cli
 pip install nemo-fabric-adapters-deepagents

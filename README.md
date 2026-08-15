@@ -41,7 +41,7 @@ expressions install the components shown in each column:
 | Agent Harness | Runtime, Adapter, and Harness | Adapter and Harness | Adapter Only |
 | --- | --- | --- | --- |
 | [Claude Code](docs/integrations/harness/claude.mdx) | `nemo-fabric[claude]` | `nemo-fabric-adapters-claude[harness]` | `nemo-fabric-adapters-claude` |
-| [Claude Code CLI](docs/integrations/harness/claude-cli.mdx) | `nemo-fabric[claude-cli]` | `nemo-fabric-adapters-claude-cli[harness]` | `nemo-fabric-adapters-claude-cli` |
+| [Claude Code CLI](docs/integrations/harness/claude-code-cli.mdx) | `nemo-fabric[claude-code-cli]` | `nemo-fabric-adapters-claude-code-cli[harness]` | `nemo-fabric-adapters-claude-code-cli` |
 | [Codex](docs/integrations/harness/codex.mdx) | `nemo-fabric[codex]` | `nemo-fabric-adapters-codex[harness]` | `nemo-fabric-adapters-codex` |
 | [Codex CLI](docs/integrations/harness/codex-cli.mdx) | `nemo-fabric[codex-cli]` | `nemo-fabric-adapters-codex-cli[harness]` | `nemo-fabric-adapters-codex-cli` |
 | [Hermes Agent](docs/integrations/harness/hermes.mdx) | `nemo-fabric[hermes-agent]` | `nemo-fabric-adapters-hermes[harness]` | `nemo-fabric-adapters-hermes` |

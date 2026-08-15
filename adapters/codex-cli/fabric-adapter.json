@@ -49,6 +49,31 @@
         "default": false,
         "description": "Allow Codex to run outside a Git repository."
       },
+      "approval_mode": {
+        "type": "string",
+        "enum": ["auto_review", "deny_all"],
+        "default": "auto_review",
+        "description": "Codex approval handling mode; deny_all pins the native approval policy to never."
+      },
+      "personality": {
+        "type": "string",
+        "enum": ["none", "friendly", "pragmatic"],
+        "description": "Codex response personality."
+      },
+      "reasoning_effort": {
+        "type": "string",
+        "enum": ["none", "minimal", "low", "medium", "high", "xhigh"],
+        "description": "Codex reasoning effort for each turn."
+      },
+      "service_tier": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Codex service tier for the thread."
+      },
+      "output_schema": {
+        "type": "object",
+        "description": "JSON Schema that constrains the final assistant message for each turn."
+      },
       "config_overrides": {
         "type": "object",
         "propertyNames": {
@@ -66,7 +91,10 @@
     "input": "agent_config",
     "accepts": [
       "models",
-      "models.base_url"
+      "models.base_url",
+      "instructions.system",
+      "mcp",
+      "skills"
     ]
   },
   "telemetry": {

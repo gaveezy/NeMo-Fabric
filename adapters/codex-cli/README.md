@@ -44,12 +44,29 @@ change the parent environment.
 
 ## Supported Configuration
 
-The adapter accepts `models` and `models.base_url`. Harness settings support
-`sandbox`, `skip_git_repo_check`, and dotted `config_overrides` merged into a
-generated, runtime-scoped Codex profile (`$CODEX_HOME/fabric-<runtime>.config.toml`)
-that is removed when the runtime stops. Skills, MCP servers, and structured
-instructions are not supported by this adapter; use the SDK-based
-`nvidia.fabric.codex` adapter for those capabilities.
+The adapter accepts `models`, `models.base_url`, `instructions.system`, `mcp`,
+and `skills`. Harness settings support `sandbox`, `skip_git_repo_check`,
+`approval_mode` (`deny_all` pins the native approval policy to `never`;
+`auto_review` keeps the Codex default), `personality`, `reasoning_effort`
+(mapped to `model_reasoning_effort`), `service_tier`, `output_schema` (staged
+to a file passed with `--output-schema`), and dotted `config_overrides`, which
+take precedence over the named settings. Runtime-scoped configuration is
+written to a generated Codex profile
+(`$CODEX_HOME/fabric-<runtime>.config.toml`) that is removed when the runtime
+stops.
+
+`instructions.system` maps to the Codex `instructions` configuration key,
+which replaces the request-level system instructions. MCP servers (stdio,
+HTTP, and streamable HTTP) map to the profile's `mcp_servers` table; MCP
+`authentication` is not supported because `codex exec` has no non-interactive
+login path — use the SDK-based `nvidia.fabric.codex` adapter for OAuth-backed
+servers.
+
+Skills are surfaced through Codex's documented workspace discovery root: the
+adapter symlinks each configured skill into `<workspace>/.agents/skills/<name>`
+and removes the links (and any directories it created) when the runtime stops.
+A pre-existing workspace entry with the same name fails startup instead of
+being replaced.
 
 ## Relay Observability
 
