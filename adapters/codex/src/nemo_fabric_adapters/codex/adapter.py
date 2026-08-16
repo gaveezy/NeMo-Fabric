@@ -306,7 +306,8 @@ async def _login_custom_provider(
     except CodexError as error:  # surface as the adapter's own error type
         raise CodexAdapterError(
             "codex_connection_failed",
-            f"Codex SDK login failed for provider {model_config.provider!r}",
+            f"Codex SDK login failed for provider "
+            f"{model_config.provider!r}: {type(error).__name__}: {error}",
         ) from error
 
 
