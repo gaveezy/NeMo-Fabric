@@ -278,6 +278,38 @@ def _native_skill_paths(config: AgentConfig, base_dir: str) -> list[Path]:
     return paths
 
 
+async def _login_custom_provider(
+    client: AsyncCodex,
+    config: AgentConfig,
+    context: RuntimeContext,
+) -> None:
+    """Authenticate the SDK client for a custom Responses provider.
+
+    ``codex app-server`` starts with no account and closes the
+    connection on the first thread when it has none — the credential in
+    the environment is not enough, the client has to log in explicitly.
+    Only custom providers are handled here: with the built-in ``openai``
+    provider Codex owns its own auth (ChatGPT sign-in or its standard
+    key lookup).
+    """
+    model_config = _selected_model_config(config)
+    if model_config.provider == "openai":
+        return
+    api_key_env = model_config.api_key_env
+    if not api_key_env:
+        return
+    api_key = context.environment.env.get(api_key_env) or os.environ.get(api_key_env)
+    if not api_key:
+        return
+    try:
+        await client.login_api_key(api_key)
+    except CodexError as error:  # surface as the adapter's own error type
+        raise CodexAdapterError(
+            "codex_connection_failed",
+            f"Codex SDK login failed for provider {model_config.provider!r}",
+        ) from error
+
+
 async def _register_skill_roots(codex: AsyncCodex, skill_paths: list[Path]) -> None:
     if not skill_paths:
         return
@@ -1269,6 +1301,7 @@ class CodexRuntime:
                 )
             client = AsyncCodex(config=client_config)
             self._client = client
+            await _login_custom_provider(client, agent_config, context)
             await _register_skill_roots(
                 client, _native_skill_paths(agent_config, base_dir)
             )
