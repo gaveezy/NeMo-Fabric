@@ -75,6 +75,13 @@ INHERITED_ENV_NAMES = {
     "CODEX_HOME",
     "CODEX_SQLITE_HOME",
     "COMSPEC",
+    # Tokio's worker-thread cap for the codex binary itself. The
+    # deny-by-default blanking below turns a host-set value into an
+    # *empty* variable, and tokio panics on any non-usize value at
+    # startup ("TOKIO_WORKER_THREADS must be usize ... empty string"),
+    # killing the process before it can speak. Hosts set this
+    # deliberately (CPU budgeting on shared nodes), so inherit it.
+    "TOKIO_WORKER_THREADS",
     "DBUS_SESSION_BUS_ADDRESS",
     "HOME",
     "HTTP_PROXY",

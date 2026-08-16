@@ -46,6 +46,13 @@ INHERITED_ENV_NAMES = {
     "CODEX_HOME",
     "CODEX_SQLITE_HOME",
     "COMSPEC",
+    # Tokio's worker-thread cap for the codex binary itself. The
+    # deny-by-default blanking below turns a host-set value into an
+    # *empty* variable, and tokio panics on any non-usize value at
+    # startup ("TOKIO_WORKER_THREADS must be usize ... empty string"),
+    # killing the process before it can speak. Hosts set this
+    # deliberately (CPU budgeting on shared nodes), so inherit it.
+    "TOKIO_WORKER_THREADS",
     "DBUS_SESSION_BUS_ADDRESS",
     "HOME",
     "HTTP_PROXY",
@@ -137,9 +144,7 @@ def _settings(config: AgentConfig) -> dict[str, Any]:
 def request_prompt(payload: dict[str, Any]) -> str:
     value = (payload.get("request") or {}).get("input")
     if not isinstance(value, str):
-        raise AdapterInputError(
-            "codex_cli_invalid_request", "Codex input must be text"
-        )
+        raise AdapterInputError("codex_cli_invalid_request", "Codex input must be text")
     return value
 
 
@@ -222,9 +227,7 @@ def _optional_string(config: AgentConfig, name: str) -> str | None:
 
 
 def approval_policy(config: AgentConfig) -> str | None:
-    mode = _optional_choice(
-        config, "approval_mode", tuple(APPROVAL_POLICY_BY_MODE)
-    )
+    mode = _optional_choice(config, "approval_mode", tuple(APPROVAL_POLICY_BY_MODE))
     return APPROVAL_POLICY_BY_MODE[mode] if mode is not None else None
 
 
